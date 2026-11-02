@@ -69,6 +69,13 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
+- **`weather` branch** (2026-11-02, on the development site for a phone test): ⋯ → Weather. A bar
+  with Wind/Rain/Temp/Cloud colours, an hour slider (yesterday to a week ahead), any past day by
+  date, and Veðurstofan's stations (latest readings, Road Administration's included); a tap opens a
+  spot's hours (`web/src/weather/`, `web/src/app/weather.ts`). Open-Meteo: DMI HARMONIE ~2 km for
+  ~2.5 days then ECMWF; past days from its forecast API (90 days) or archive (ERA5). The last
+  forecast and readings are kept in IndexedDB for offline. Later ideas: route weather, stations'
+  past readings (per-region requests), CARRA 2.5 km history.
 - **Switched 2026-10-29: Garmin Map is now Varda at vardamaps.app** (repo `atlipall/varda`). DNS on
   Cloudflare (zone `vardamaps.app`; Pages A/AAAA/www records DNS-only; the wrangler login can't edit
   DNS, a DNS-only API token was used and deleted). Old `atlipall.github.io/garmin-maps/…` addresses

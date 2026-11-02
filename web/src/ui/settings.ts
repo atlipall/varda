@@ -11,6 +11,24 @@ export function readSetting(key: string, fallback: boolean): boolean {
   }
 }
 
+/** A per-device choice among names (fails soft to `fallback`, as above). */
+export function readChoice<T extends string>(key: string, choices: readonly T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(storageName(key));
+    return choices.includes(v as T) ? (v as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function writeChoice(key: string, value: string): void {
+  try {
+    localStorage.setItem(storageName(key), value);
+  } catch {
+    // not remembered
+  }
+}
+
 export function writeSetting(key: string, value: boolean): void {
   try {
     localStorage.setItem(storageName(key), value ? '1' : '0');

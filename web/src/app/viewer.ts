@@ -26,6 +26,7 @@ import { RoutePlanner } from './route';
 import { SavedPanel } from './savedPanel';
 import { DriveSync } from './driveSync';
 import { Photos } from './photos';
+import { Weather } from './weather';
 import { androidApp, DiagnosticsPanel } from './diagnostics';
 import { TripRecorder } from './tripRecorder';
 import { Navigator } from './navigation';
@@ -291,7 +292,7 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
     showImport('', { hasMap: true, canCancel: true });
   };
 
-  const app = { map, perf, ready: false, placesReady: false, search: (_q: string): Place[] | null => null, samples: SAMPLES, tracks: null as TracksPanel | null, trackCard: null as TrackCard | null, trip: null as TripRecorder | null, lastIntent: null as string | null, routePlanner: null as RoutePlanner | null, saved: null as SavedPanel | null, photos: null as Photos | null, sync: null as DriveSync | null, navigator: null as Navigator | null, screenAwake: awake };
+  const app = { map, perf, ready: false, placesReady: false, search: (_q: string): Place[] | null => null, samples: SAMPLES, tracks: null as TracksPanel | null, trackCard: null as TrackCard | null, trip: null as TripRecorder | null, lastIntent: null as string | null, routePlanner: null as RoutePlanner | null, saved: null as SavedPanel | null, photos: null as Photos | null, weather: null as Weather | null, sync: null as DriveSync | null, navigator: null as Navigator | null, screenAwake: awake };
   window.__app = app;
   // F-road/track classes from the place-index pass, keyed by tile id and NET offset. Resolved
   // once `loadPlaces` finishes; a route requested before then awaits this instead. Rejected if
@@ -446,6 +447,21 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
       focusPanel('photos');
     };
     dialogs.add('photos', () => photos.show(false));
+    // Weather (⋯ → Weather): a bar of its own that stays while other panels come and go; its card
+    // goes away with them.
+    const weather = new Weather({
+      map,
+      near: (lon, lat) => (places.length ? nearName(places, [lon, lat]) ?? null : null),
+      tapTaken: () => routePlanner.choosingStart,
+      tappable: ['saved-pins', 'route-via'],
+      beneath: 'ln-other',
+    });
+    app.weather = weather;
+    $('weather-open').onclick = () => {
+      setMenu(false);
+      weather.show(true);
+    };
+    dialogs.add('weather-card', () => weather.closeCard());
     dialogs.add('photo-viewer', () => photos.viewer.close());
     routePlanner.onSave = (item) => saved.add(item);
     routePlanner.onSaveTrack = async (t) => {

@@ -1004,6 +1004,151 @@ try {
   for (let i = 0; i < 4 && (await page.$eval('.locate-button', (b) => b.dataset.state)) !== locWas; i++) await page.click('.locate-button');
   console.log('photos ok:', panel.foot.split('.')[0]);
 
+  // 3g. Weather: ⋯ → Weather draws the forecast over the map from a fake Open-Meteo (DMI's hours first,
+  // ECMWF's after), with Veðurstofan's stations from a fake api.vedur.is; a tap opens a spot's hours,
+  // a station's tap its readings; a past day comes from the archive; ✕ takes it all away.
+  {
+    const wxCors = { 'Access-Control-Allow-Origin': '*' };
+    const wxCalls = [];
+    const hourMs = 3_600_000;
+    const day0 = Math.floor(Date.now() / 86_400_000) * 86_400_000 - 86_400_000;
+    const fakeWeather = (url) => {
+      const lats = url.searchParams.get('latitude').split(',').map(Number);
+      const lons = url.searchParams.get('longitude').split(',').map(Number);
+      const archive = url.hostname.startsWith('archive');
+      const start = url.searchParams.get('start_date') ? Date.parse(url.searchParams.get('start_date')) : day0;
+      const hours = url.searchParams.get('start_date') ? 24 : 192;
+      const time = Array.from({ length: hours }, (_, i) => new Date(start + i * hourMs).toISOString().slice(0, 16));
+      const series = (lat, lon, f) => Array.from({ length: hours }, (_, i) => f(lat, lon, i));
+      const fields = {
+        wind_speed_10m: (lat, lon, i) => Math.max(0, 4 + (lat - 63.3) * 6 + (lon + 20) * 1.5 + 4 * Math.sin(i / 7)),
+        wind_gusts_10m: (lat, lon, i) => Math.max(0, 8 + (lat - 63.3) * 9 + 4 * Math.sin(i / 7)),
+        wind_direction_10m: (lat, lon, i) => (200 + i * 3 + lon * 4) % 360,
+        temperature_2m: (lat, lon, i) => 6 - (lat - 63.3) * 4 + 3 * Math.sin(i / 4),
+        precipitation: (lat, lon, i) => Math.max(0, 2 * Math.sin(i / 5 + lon) - 0.5),
+        cloud_cover: (lat, lon, i) => Math.min(100, Math.max(0, 50 + 50 * Math.sin(i / 9 + lat))),
+      };
+      const body = lats.map((lat, k) => {
+        const hourly = { time };
+        for (const [name, f] of Object.entries(fields)) {
+          if (archive) hourly[name] = series(lat, lons[k], f);
+          else {
+            // DMI's model reaches 60 hours; ECMWF's the whole week.
+            hourly[`${name}_dmi_harmonie_arome_europe`] = series(lat, lons[k], (a, b, i) => (i < 60 ? f(a, b, i) : null));
+            hourly[`${name}_ecmwf_ifs025`] = series(lat, lons[k], f);
+          }
+        }
+        return { latitude: lat, longitude: lons[k], hourly };
+      });
+      return body.length === 1 ? body[0] : body;
+    };
+    const nowIso = new Date(Math.floor(Date.now() / 600_000) * 600_000).toISOString().slice(0, 19);
+    const wxStations = [
+      { station: 6222, name: 'Landmannahellir', lat: 64.05, lon: -19.21, ele: 590, owner: 'Veðurstofa Íslands' },
+      { station: 6420, name: 'Hrauneyjar', lat: 64.2, lon: -19.27, ele: 420, owner: 'Landsvirkjun' },
+    ];
+    const wxLatest = [
+      { station: 6222, time: nowIso, t: -1.2, f: 14.3, fg: 21.8, d: 45, rh: 80, p: 1003 },
+      { station: 6420, time: nowIso, t: 0.4, f: 9.1, fg: 13.0, d: 30, rh: 75, p: 1004 },
+    ];
+    const onWeather = (req) => {
+      const url = new URL(req.url());
+      if (url.hostname.endsWith('open-meteo.com')) {
+        wxCalls.push(url);
+        return req.respond({ status: 200, headers: wxCors, contentType: 'application/json', body: JSON.stringify(fakeWeather(url)) });
+      }
+      if (url.hostname === 'api.vedur.is') {
+        wxCalls.push(url);
+        const body = url.pathname.endsWith('/stations') ? wxStations : wxLatest;
+        return req.respond({ status: 200, headers: wxCors, contentType: 'application/json', body: JSON.stringify(body) });
+      }
+      return req.continue();
+    };
+    await page.setRequestInterception(true);
+    page.on('request', onWeather);
+    await page.evaluate(() => {
+      window.__app.routePlanner?.clear?.('e2e');
+      window.__app.map.jumpTo({ center: [-19.2, 64.05], zoom: 8.5, bearing: 0 });
+    });
+    if ((await page.$eval('.locate-button', (b) => b.dataset.state)) !== 'off') {
+      for (let i = 0; i < 4 && (await page.$eval('.locate-button', (b) => b.dataset.state)) !== 'off'; i++) await page.click('.locate-button');
+      await page.evaluate(() => window.__app.map.jumpTo({ center: [-19.2, 64.05], zoom: 8.5, bearing: 0 }));
+    }
+    await page.click('#menu-button');
+    await page.click('#weather-open');
+    await page.waitForFunction(() => window.__app.weather.state.grid && window.__app.map.getLayer('weather-field') && window.__app.weather.state.stations === 2, { timeout: 15_000 })
+      .catch(async () => fail(`weather: no layer (${await page.evaluate(() => window.__app.weather.state.status)})`));
+    // The station points take a frame to reach the map's own copy of the source.
+    await page.waitForFunction(() => window.__app.map.querySourceFeatures('weather-stations').reduce((ids, f) => ids.add(f.properties.id), new Set()).size === 2, { timeout: 5_000 }).catch(() => {});
+    const wx = await page.evaluate(() => {
+      const s = window.__app.weather.state;
+      const m = window.__app.map;
+      return { hours: s.grid.times.length, step: s.grid.dLat, points: s.grid.rows * s.grid.cols, source: s.grid.source, time: document.querySelector('#weather-time').textContent, max: document.querySelector('#weather-slider').max, arrows: m.querySourceFeatures('weather-arrows').length, stationsShown: m.querySourceFeatures('weather-stations').reduce((ids, f) => ids.add(f.properties.id), new Set()).size, fieldBelowRoads: m.getStyle().layers.findIndex((l) => l.id === 'weather-field') < m.getStyle().layers.findIndex((l) => l.id === 'ln-other') };
+    });
+    if (wx.hours !== 192 || wx.max !== '191') fail(`weather: ${wx.hours} hours, slider to ${wx.max}`);
+    // The finest spacing for zoom 8.5 within 360 points (0.15° on this desktop-sized window).
+    if (wx.step > 0.15 || wx.points > 360) fail(`weather: grid of ${wx.points} points at ${wx.step}°`);
+    if (wx.source !== 'DMI HARMONIE, ECMWF') fail(`weather: source ${wx.source}`);
+    if (!wx.time.startsWith('Now')) fail(`weather: time reads ${wx.time}`);
+    if (!wx.arrows || wx.stationsShown !== 2) fail(`weather: ${wx.arrows} arrows, ${wx.stationsShown} stations`);
+    if (!wx.fieldBelowRoads) fail('weather: the colours are drawn over the roads');
+    const forecastCall = wxCalls.find((u) => u.pathname === '/v1/forecast');
+    if (forecastCall?.searchParams.get('models') !== 'dmi_harmonie_arome_europe,ecmwf_ifs025') fail(`weather: asked ${forecastCall}`);
+    await page.waitForFunction(() => window.__app.map.loaded(), { timeout: 10_000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 400));
+    await page.screenshot({ path: `${OUT}weather-wind.png` });
+    // Another layer: the legend follows.
+    await page.click('#weather-layers [data-layer="temp"]');
+    if ((await page.$eval('#weather-legend-unit', (e) => e.textContent)) !== '°C') fail('weather: temperature legend');
+    await new Promise((r) => setTimeout(r, 400));
+    await page.screenshot({ path: `${OUT}weather-temp.png` });
+    await page.click('#weather-layers [data-layer="wind"]');
+    // A tap on the map: that spot's hours.
+    const spot = await page.evaluate(() => { const p = window.__app.map.project([-18.95, 63.95]); return [p.x, p.y]; });
+    await page.mouse.click(spot[0], spot[1]);
+    await page.waitForFunction(() => !document.querySelector('#weather-card').hidden && document.querySelector('#weather-chart svg'), { timeout: 5_000 }).catch(() => fail('weather: no card for a tapped spot'));
+    const facts = await page.$eval('#weather-card-facts', (e) => e.textContent);
+    if (!/Wind\d+ m\/s from [NESW]+Gusts\d+ m\/s/.test(facts)) fail(`weather card: ${facts}`);
+    await page.screenshot({ path: `${OUT}weather-card.png` });
+    // Thirty hours on: the stations step aside (they're measurements) and the card follows the hour.
+    await page.$eval('#weather-slider', (s) => { s.value = String(Number(s.value) + 30); s.dispatchEvent(new Event('input')); });
+    await new Promise((r) => setTimeout(r, 150)); // drawn on the next frame
+    await page.waitForFunction(() => window.__app.map.querySourceFeatures('weather-stations').length === 0, { timeout: 5_000 }).catch(() => {});
+    const later = await page.evaluate(() => ({ time: document.querySelector('#weather-time').textContent, note: document.querySelector('#weather-stations-note').textContent, stations: window.__app.map.querySourceFeatures('weather-stations').reduce((ids, f) => ids.add(f.properties.id), new Set()).size, sub: document.querySelector('#weather-card-sub').textContent }));
+    if (!/in 1 d 6 h|in 30 h/.test(later.time) || !later.note || later.stations !== 0) fail(`weather later: ${JSON.stringify(later)}`);
+    // A tap on the chart picks that hour.
+    const chart = await page.$eval('#weather-chart svg', (e) => { const r = e.getBoundingClientRect(); return [r.left + r.width * 0.15, r.top + r.height / 2]; });
+    await page.mouse.click(chart[0], chart[1]);
+    await new Promise((r) => setTimeout(r, 150));
+    if ((await page.$eval('#weather-card-sub', (e) => e.textContent)) === later.sub) fail('weather: a tap on the chart did not change the hour');
+    // Back to now; a tap on a station: its readings.
+    await page.click('#weather-now');
+    await page.waitForFunction(() => window.__app.map.querySourceFeatures('weather-stations').reduce((ids, f) => ids.add(f.properties.id), new Set()).size === 2, { timeout: 5_000 }).catch(() => fail('weather: stations not back at Now'));
+    await new Promise((r) => setTimeout(r, 300));
+    const st = await page.evaluate(() => { const p = window.__app.map.project([-19.21, 64.05]); return [p.x, p.y]; });
+    await page.mouse.click(st[0], st[1]);
+    await page.waitForFunction(() => document.querySelector('#weather-card-title').textContent === 'Landmannahellir', { timeout: 5_000 })
+      .catch(async () => fail(`weather: station card shows ${await page.$eval('#weather-card-title', (e) => e.textContent)}`));
+    const stFacts = await page.$eval('#weather-card-facts', (e) => e.textContent);
+    if (!stFacts.includes('14.3 m/s from NE') || !stFacts.includes('21.8 m/s')) fail(`weather station card: ${stFacts}`);
+    await page.screenshot({ path: `${OUT}weather-station.png` });
+    await page.click('#weather-card-close');
+    // A past day long ago: the archive, 24 hours of it.
+    await page.$eval('#weather-date', (d) => { d.value = '1995-01-10'; d.dispatchEvent(new Event('change')); });
+    await page.waitForFunction(() => window.__app.weather.state.grid?.times[0] === Date.UTC(1995, 0, 10), { timeout: 10_000 }).catch(() => fail('weather: no past day'));
+    if (!wxCalls.some((u) => u.hostname === 'archive-api.open-meteo.com' && u.searchParams.get('start_date') === '1995-01-10')) fail('weather: the past day did not come from the archive');
+    const past = await page.evaluate(() => ({ time: document.querySelector('#weather-time').textContent, date: document.querySelector('#weather-date-box span').textContent, source: window.__app.weather.state.grid.source }));
+    if (!past.time.includes('1995') || !past.time.endsWith('12:00') || past.date !== '10 Jan 1995' || past.source !== 'ERA5') fail(`weather past day: ${JSON.stringify(past)}`);
+    await page.screenshot({ path: `${OUT}weather-past.png` });
+    // ✕: the bar and everything on the map go.
+    await page.click('#weather-close');
+    const gone = await page.evaluate(() => ['weather-field', 'weather-arrows', 'weather-stations'].filter((l) => window.__app.map.getLayer(l)));
+    if (gone.length || !(await page.$eval('#weather-bar', (e) => e.hidden))) fail(`weather: still shown after ✕ (${gone})`);
+    page.off('request', onWeather);
+    await page.setRequestInterception(false);
+    console.log('weather ok:', wx.points, 'points,', wx.hours, 'hours,', wx.source);
+  }
+
   // 4. reload opens straight from storage, where the app was: view, location mode and route
   await page.evaluate(() => window.__app.routePlanner.pick({ name: 'Landmannalaugar', lon: -19.06, lat: 63.991 }));
   await page.click('#route-go');

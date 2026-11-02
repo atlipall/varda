@@ -19,7 +19,7 @@ import { diag } from './diagnostics';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 /** Hold time for a long press: below iOS's own ~0.5 s long-press gestures (selection loupe, callout). */
-const LONG_PRESS_MS = 450;
+export const LONG_PRESS_MS = 450;
 /** iOS may cancel the touch when its own long-press gesture starts; a finger held still this long
  *  by then already counts as a long press. */
 const LONG_PRESS_CANCEL_MS = 350;
@@ -326,6 +326,11 @@ export class RoutePlanner {
     this.setVias(this.vias.slice(passed));
     this.fitRoute = false;
     void this.route();
+  }
+
+  /** True while a tap on the map sets the route's start. */
+  get choosingStart(): boolean {
+    return this.choosing;
   }
 
   /** The card to remember across restarts: the place and, once routed, where from. */

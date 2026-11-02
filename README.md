@@ -39,6 +39,8 @@ the sign-in helper have their own deployments: see CLAUDE.md for all of them and
 - `web/src/routing/`, `web/src/app/route.ts`: route planning over the map's NOD road network, and the route card
 - `web/src/app/navigation.ts`, `web/src/routing/maneuvers.ts`, `web/src/routing/progress.ts`: turn-by-turn
 - `web/src/saved/`, `web/src/app/savedPanel.ts`, `web/src/app/saveHere.ts`: saved places, backup files
+- `web/src/weather/`, `web/src/app/weather.ts`: the weather over the map (Open-Meteo's forecast and past days,
+  Veðurstofa Íslands' stations), drawn from a grid of points over the view
 - `web/src/sync/`, `web/src/app/driveSync.ts`: Google Drive sync; `web/auth-worker/` is its sign-in helper
   (a Cloudflare Worker that keeps devices signed in)
 - `web/src/storage/`: storing imported files on the device (OPFS) and the IndexedDB database
