@@ -111,6 +111,8 @@ function sourceName(used: Set<string>): string {
 export async function fetchWeather(spec: GridSpec, period: Period, signal?: AbortSignal): Promise<WeatherGrid> {
   const res = await fetch(weatherUrl(spec, period), { signal });
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((body as PointAnswer | null)?.reason ?? `The weather service answered ${res.status}.`);
+  if (res.status === 429) throw new Error('Open-Meteo has had too many requests from this device for now: try again in a while');
+  if (res.status === 503) throw new Error('Open-Meteo is overloaded right now: try again in a while');
+  if (!res.ok) throw new Error((body as PointAnswer | null)?.reason ?? `The weather service answered ${res.status}`);
   return parseWeather(spec, body);
 }

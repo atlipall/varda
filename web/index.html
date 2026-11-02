@@ -110,6 +110,7 @@
       #weather-stations-note, #weather-status, #weather-credit { margin: 0; font-size: calc(12 * var(--px)); color: #556; }
       #weather-stations-note:empty, #weather-status:empty { display: none; }
       #weather-credit a { color: inherit; }
+      #weather-status.problem { padding: 6px 8px; border-radius: 8px; background: #fdecea; color: #8a1c14; font-size: calc(13 * var(--px)); }
       #weather-card { position: absolute; z-index: 4; left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--gap)); bottom: calc(max(0px, env(safe-area-inset-bottom) - 14px) + 64px); max-width: 420px; max-height: calc(100% - var(--top) - 300px); overflow-y: auto; box-sizing: border-box; padding: 4px 16px 12px; background: #fff; border-radius: 18px; box-shadow: 0 8px 28px #1e283c38; display: grid; gap: 8px; }
       #weather-card-head { display: flex; align-items: center; gap: 6px; padding-top: 6px; }
       #weather-card-text { flex: 1; min-width: 0; display: grid; gap: 2px; }

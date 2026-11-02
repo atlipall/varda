@@ -191,7 +191,7 @@ export class Weather {
     const fresh = this.period.kind === 'day' || (s && Date.now() - s.grid.fetched < FORECAST_FRESH);
     if (s && samePeriods(s.period, this.period) && fresh && covers(s.grid, spec)) return;
     if (!navigator.onLine) {
-      this.setStatus(s ? `Offline · ${this.sourceText()}` : 'Offline: the weather shows once you’re connected.');
+      this.setStatus(s ? `Offline · ${this.sourceText()}` : 'Offline: the weather shows once you’re connected.', !s);
       return;
     }
     this.fetching?.abort();
@@ -215,8 +215,8 @@ export class Weather {
     } catch (err) {
       if (ctl.signal.aborted) return;
       console.warn('weather', err);
-      const why = navigator.onLine ? `Couldn’t load the weather (${(err as Error).message})` : 'Offline';
-      this.setStatus(this.shown ? `${why} · ${this.sourceText()}` : `${why}.`);
+      const why = navigator.onLine ? `Couldn’t load the weather: ${(err as Error).message}` : 'Offline';
+      this.setStatus(this.shown ? `${why}. Showing: ${this.sourceText()}` : `${why}.`, true);
     } finally {
       if (this.fetching === ctl) this.fetching = null;
     }
@@ -354,9 +354,10 @@ export class Weather {
     $('weather-stations-note').textContent = note;
   }
 
-  private setStatus(text: string): void {
+  private setStatus(text: string, problem = false): void {
     this.status = text;
     $('weather-status').textContent = text;
+    $('weather-status').classList.toggle('problem', problem);
   }
 
   private sourceText(): string {

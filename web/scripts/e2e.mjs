@@ -1086,8 +1086,8 @@ try {
       return { hours: s.grid.times.length, step: s.grid.dLat, points: s.grid.rows * s.grid.cols, source: s.grid.source, time: document.querySelector('#weather-time').textContent, max: document.querySelector('#weather-slider').max, arrows: m.querySourceFeatures('weather-arrows').length, stationsShown: m.querySourceFeatures('weather-stations').reduce((ids, f) => ids.add(f.properties.id), new Set()).size, fieldBelowRoads: m.getStyle().layers.findIndex((l) => l.id === 'weather-field') < m.getStyle().layers.findIndex((l) => l.id === 'ln-other') };
     });
     if (wx.hours !== 192 || wx.max !== '191') fail(`weather: ${wx.hours} hours, slider to ${wx.max}`);
-    // The finest spacing for zoom 8.5 within 360 points (0.15° on this desktop-sized window).
-    if (wx.step > 0.15 || wx.points > 360) fail(`weather: grid of ${wx.points} points at ${wx.step}°`);
+    // The finest spacing for zoom 8.5 within 150 points (0.25° on this desktop-sized window).
+    if (wx.step > 0.25 || wx.points > 150) fail(`weather: grid of ${wx.points} points at ${wx.step}°`);
     if (wx.source !== 'DMI HARMONIE, ECMWF') fail(`weather: source ${wx.source}`);
     if (!wx.time.startsWith('Now')) fail(`weather: time reads ${wx.time}`);
     if (!wx.arrows || wx.stationsShown !== 2) fail(`weather: ${wx.arrows} arrows, ${wx.stationsShown} stations`);

@@ -32,17 +32,18 @@ export interface WeatherGrid extends GridSpec {
 
 /** Spacings from coarse to fine; a finer one takes over as the map zooms in. */
 const STEPS: Array<{ minZoom: number; dLat: number; dLon: number }> = [
-  { minZoom: 0, dLat: 0.3, dLon: 0.6 },
-  { minZoom: 6.5, dLat: 0.15, dLon: 0.3 },
-  { minZoom: 8, dLat: 0.06, dLon: 0.12 },
-  { minZoom: 9.5, dLat: 0.03, dLon: 0.06 },
+  { minZoom: 0, dLat: 0.5, dLon: 1 },
+  { minZoom: 6.5, dLat: 0.25, dLon: 0.5 },
+  { minZoom: 8, dLat: 0.1, dLon: 0.2 },
+  { minZoom: 9.5, dLat: 0.05, dLon: 0.1 },
   // About DMI's 2 km.
-  { minZoom: 11, dLat: 0.015, dLon: 0.03 },
+  { minZoom: 11, dLat: 0.02, dLon: 0.04 },
 ];
 
-/** At most this many points in one request (a few MB of JSON for a week of hours; Iceland whole at
- *  the coarsest spacing is 330). */
-export const MAX_POINTS = 360;
+/** At most this many points in one request. Open-Meteo's free use counts each point as a call (a
+ *  little more with our 12 series) and allows 600 a minute and 10,000 a day: about 180 a request
+ *  leaves room for a few in a minute and dozens a day. Iceland whole at the coarsest spacing is 140. */
+export const MAX_POINTS = 150;
 
 const round = (v: number) => Math.round(v * 1e4) / 1e4;
 

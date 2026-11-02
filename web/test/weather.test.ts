@@ -22,7 +22,7 @@ function makeGrid(spec: GridSpec, hours: number, fill: (f: Field, t: number, r: 
 describe('weather grid', () => {
   test('the whole of Iceland at a low zoom: the coarse spacing, within the point limit, reaching past the view', () => {
     const g = gridFor(ICELAND, 5.5);
-    expect([g.dLat, g.dLon]).toEqual([0.3, 0.6]);
+    expect([g.dLat, g.dLon]).toEqual([0.5, 1]);
     expect(g.rows * g.cols).toBeLessThanOrEqual(MAX_POINTS);
     expect(g.south).toBeLessThan(63.2);
     expect(g.west).toBeLessThan(-24.6);
@@ -31,13 +31,15 @@ describe('weather grid', () => {
   });
 
   test('zoomed in, the spacing gets finer; too many points falls back to a coarser one', () => {
-    const view: [number, number, number, number] = [-19.3, 63.9, -18.9, 64.1];
-    expect(gridFor(view, 11).dLat).toBe(0.015);
-    expect(gridFor(view, 9).dLat).toBe(0.06);
+    const view: [number, number, number, number] = [-19.2, 63.95, -19.0, 64.05];
+    expect(gridFor(view, 11).dLat).toBe(0.02);
+    expect(gridFor(view, 9).dLat).toBe(0.1);
+    // A wider view at zoom 11 takes the next spacing.
+    expect(gridFor([-19.3, 63.9, -18.9, 64.1], 11).dLat).toBe(0.05);
     // Iceland at zoom 11 would be thousands of points.
     const wide = gridFor(ICELAND, 11);
     expect(wide.rows * wide.cols).toBeLessThanOrEqual(MAX_POINTS);
-    expect(wide.dLat).toBe(0.3);
+    expect(wide.dLat).toBe(0.5);
   });
 
   test('the whole world keeps to the limit', () => {
