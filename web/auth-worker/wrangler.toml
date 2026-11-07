@@ -5,11 +5,11 @@
 name = "garmin-maps-auth"
 main = "worker.ts"
 compatibility_date = "2026-08-01"
-workers_dev = true
+workers_dev = false
 # Its address since the move to vardamaps.app (Cloudflare makes the DNS record and certificate).
 routes = [{ pattern = "auth.vardamaps.app", custom_domain = true }]
 
 [vars]
 GOOGLE_CLIENT_ID = "461823178284-761cjr28lki3ocobgt9n8kag1op4f5rp.apps.googleusercontent.com"
 # Pages that may use the helper (the app, and the dev server).
-ALLOWED_ORIGINS = "https://vardamaps.app,https://atlipall.github.io,http://localhost:5173"
+ALLOWED_ORIGINS = "https://vardamaps.app,http://localhost:5173"
