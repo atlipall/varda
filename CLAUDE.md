@@ -47,9 +47,10 @@ npm run icons                           # redraw the app's and Android app's ico
 | The app + guide | vardamaps.app (`/app/`; custom domain on GitHub Pages, DNS on Cloudflare) | push `main` → `.github/workflows/pages.yml` |
 | Development version | `/app-dev/` ("Varda Dev") | `git push --force origin <branch>:dev`; `dev.yml` re-runs Pages from main, which builds both |
 | Android app | GitHub Releases, `releases/latest/download/Varda.apk` | push `main` touching `android/` → `android.yml` |
-| Sign-in helper | auth.vardamaps.app (worker `garmin-maps-auth`, kept so its secrets stay) | `wrangler deploy` in `web/auth-worker/` |
-| Free-map download helper | download.vardamaps.app (worker `garmin-maps-download`) | `wrangler deploy` in `web/download-worker/` (passes the Freizeitkarte Iceland zip on with CORS; no secrets) |
+| Sign-in helper | auth.vardamaps.app only (worker `garmin-maps-auth`, kept so its secrets stay; workers.dev off) | `wrangler deploy` in `web/auth-worker/` |
+| Free-map download helper | download.vardamaps.app only (worker `garmin-maps-download`; workers.dev off) | `wrangler deploy` in `web/download-worker/` (passes the Freizeitkarte Iceland zip on with CORS; no secrets) |
 | Asset links | vardamaps.app/.well-known/assetlinks.json | `web/site/.well-known/assetlinks.json`, deployed with the site |
+| Old addresses | atlipall.github.io/garmin-maps/… | redirect pages in the `atlipall/atlipall.github.io` repo (no asset links there any more) |
 | Development page | vardamaps.app/dev/ (APK downloads, short to type on the head unit) | `web/site/dev/index.html`, deployed with the site; update its pinned APK version |
 
 - Only `main` may deploy to Pages (environment rule): never loosen it; dev deploys go through `dev.yml`.
@@ -61,7 +62,8 @@ npm run icons                           # redraw the app's and Android app's ico
 - **Adding a host the app talks to:** add it to the CSP `connect-src` in `web/index.html`, or it fails
   silently in the browser (the e2e catches it; unit tests don't).
 - Wrangler isn't installed globally: use `/Users/atli/projects/katifillinn/node_modules/.bin/wrangler`
-  (logged in to the owner's Cloudflare account, workers.dev subdomain `atlipall`). Its secrets:
+  (logged in to the owner's Cloudflare account; the helpers take only `ALLOWED_ORIGINS` in their
+  `wrangler.toml`: vardamaps.app and localhost). Its secrets:
   `GOOGLE_CLIENT_SECRET`, `SEAL_KEY`.
 - Android: APKs are built on GitHub; local build, emulator and Chrome's location rules are in
   `android/CLAUDE.md`. Signing key: repo secrets `ANDROID_KEYSTORE`/`ANDROID_KEYSTORE_PASSWORD`, local
