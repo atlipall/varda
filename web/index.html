@@ -360,15 +360,22 @@
       @media (min-width: 900px) and (orientation: landscape) {
         #nav-column { display: flex; flex-direction: column; gap: 10px; position: absolute; z-index: 5; left: calc(env(safe-area-inset-left) + 16px); top: 16px; bottom: calc(max(0px, env(safe-area-inset-bottom) - 14px) + 64px); pointer-events: none; }
         #nav-column > * { pointer-events: auto; }
-        #nav-banner { position: static; flex: none; width: 380px; max-width: none; }
-        /* The arrow beside the distance, the instruction under both: two lines of street name fit. */
-        #nav-icon svg { width: 64px; height: 64px; }
-        #nav-main { display: grid; grid-template-columns: auto 1fr; align-items: center; padding: 16px 20px; gap: 6px 14px; }
+        #nav-banner { position: static; flex: none; width: 320px; max-width: none; }
+        /* Compact, after the car screens of Google Maps: the arrow beside the distance, the
+           instruction under both (two lines of street name fit), and the map keeps most of the screen. */
+        #nav-icon svg { width: 44px; height: 44px; }
+        #nav-main { display: grid; grid-template-columns: auto 1fr; align-items: center; padding: 12px 16px; gap: 4px 12px; }
         #nav-main .nav-text { display: contents; }
         #nav-text { grid-column: 1 / -1; }
-        #nav-dist { font-size: calc(52 * var(--px)); }
-        #nav-text { font-size: calc(26 * var(--px)); font-weight: 700; }
-        #nav-bottom { position: static; margin-top: auto; width: 380px; max-width: none; }
+        #nav-dist { font-size: calc(38 * var(--px)); }
+        #nav-text { font-size: calc(20 * var(--px)); font-weight: 700; }
+        #nav-then { padding: 7px 16px; }
+        #nav-bottom { position: static; margin-top: auto; width: 320px; max-width: none; }
+        #nav-panel { padding: 8px 8px 10px 14px; gap: 4px; }
+        #nav-panel .nav-row { gap: 6px; }
+        #nav-arrive { font-size: calc(26 * var(--px)); }
+        #nav-time { font-size: calc(17 * var(--px)); }
+        #nav-km { font-size: calc(14 * var(--px)); }
         body.navigating #map .maplibregl-ctrl-top-right { display: block !important; }
       }
       /* Route card (B): a header that turns into a blue summary band once routed, the stops as a
