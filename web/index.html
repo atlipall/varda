@@ -462,7 +462,7 @@
       .place-menu button:first-of-type { border-color: var(--accent); background: var(--accent); color: #fff; }
       /* Car-sized controls: in the Android app on a big screen (a head unit, read at arm's length
          while driving), the controls over the map are drawn 1.5 times bigger (buttons 66 px; Android
-         Auto asks for 76 dp) and the cards 1.25 times. The map itself isn't scaled. `car-size` is set
+         Auto asks for 76 dp), the cards 1.25 times and the guidance 1.1 times. The map itself isn't scaled. `car-size` is set
          from the screen's size (startup.ts), not the window's, so the keyboard shrinking the page
          doesn't shrink the controls. */
       body.car-size {
@@ -470,7 +470,9 @@
         & #map :is(.maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left, .place-menu .maplibregl-popup-content) { zoom: 1.5; }
         /* The cards beside the map less so (at 1.5 the route and guidance cards took half the screen),
            and the notes that show in their place at the same size, so neither covers the other. */
-        & :is(#route-card, #nav-banner, #nav-bottom, #here-card, #track-card, #trip-card, #here-toast, #nav-undo, #trip-note, #photo-note, #photo-check, #sync-photos-ask, #pv-sheet, #pv-top, .pv-step) { zoom: 1.25; }
+        & :is(#route-card, #here-card, #track-card, #trip-card, #here-toast, #nav-undo, #trip-note, #photo-note, #photo-check, #sync-photos-ask, #pv-sheet, #pv-top, .pv-step) { zoom: 1.25; }
+        /* The guidance cards smaller still, after Google Maps on a car screen: the map keeps the room. */
+        & :is(#nav-banner, #nav-bottom) { zoom: 1.1; }
       }
       /* Finger-sized buttons on touch screens. */
       @media (pointer: coarse) {
