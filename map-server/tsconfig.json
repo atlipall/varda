@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "types": ["vite/client", "node"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    // The app's code in ../web/src takes its packages from here too (see resolve.mjs).
+    "paths": {
+      "maplibre-gl": ["./node_modules/maplibre-gl"],
+      "lineclip": ["./node_modules/lineclip"],
+      "@maplibre/vt-pbf": ["./node_modules/@maplibre/vt-pbf"]
+    }
+  },
+  "include": ["src", "test", "vitest.config.ts", "../web/src/types"]
+}

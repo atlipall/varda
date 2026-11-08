@@ -12,16 +12,16 @@ patterns and icons, and SRTM `.hgt` elevation files give hillshading.
 You need Node.js 22 or newer.
 
 ```bash
-cd web
+cd map-server
 npm install
-npm run map-server                 # builds map-server/dist/
-node map-server/dist/server.mjs --maps /path/to/maps
+npm run build                      # builds dist/
+node dist/server.mjs --maps /path/to/maps
 ```
 
 Then open <http://localhost:8080/>: it lists your maps, each with a live preview and the code to put
 it on a page.
 
-`map-server/dist/` is all it needs to run: copy that folder to your server, there's nothing to
+`dist/` is all it needs to run: copy that folder to your server, there's nothing to
 install there.
 
 ### The maps folder
@@ -148,11 +148,13 @@ when the server recognises it; for others, add the credit to your page.
 
 ## Development
 
-The server reads maps with the same code as the Varda app in this repository (`web/src/img`,
-`web/src/tiles`, `web/src/style`, `web/src/dem`), and is built from `web/map-server/src/`.
+The server reads maps with the same code as the Varda app in this repository (`../web/src/img`,
+`tiles`, `style`, `dem`). The packages that code uses come from this folder's `node_modules`
+(`resolve.mjs`), so the app's packages don't need installing.
 
 ```bash
-npm run map-server                    # build
-node map-server/check.mjs             # headless-Chrome check on the GPSmap.is package (macOS Chrome)
-./node_modules/.bin/vitest run test/mapServer.test.ts
+npm run build                         # dist/
+npm test                              # unit tests; the real-map ones need the GPSmap.is package
+npm run typecheck
+npm run check                         # headless-Chrome check on the GPSmap.is package (macOS Chrome), screenshots in check-output/
 ```

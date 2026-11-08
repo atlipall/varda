@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "isolatedModules": true
   },
-  "include": ["src", "test", "map-server", "auth-worker", "download-worker", "scripts/**/*.ts", "vite.config.ts"]
+  "include": ["src", "test", "auth-worker", "download-worker", "scripts/**/*.ts", "vite.config.ts"]
 }

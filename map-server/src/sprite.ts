@@ -1,4 +1,4 @@
-import type { RgbaImage } from '../../src/img/typ';
+import type { RgbaImage } from '../../web/src/img/typ';
 import { encodePng } from './png';
 
 export interface SpriteEntry {

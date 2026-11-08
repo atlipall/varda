@@ -29,7 +29,6 @@ npm run e2e                             # build with VITE_GOOGLE_CLIENT_ID=e2e, 
 node scripts/e2e.mjs                    # the e2e again without rebuilding
 npm run dev                             # http://localhost:5173
 npm run shots                           # retake the guide's screenshots (web/site/images/) after a UI change
-npm run map-server                      # build the map server (web/map-server/dist/); node map-server/check.mjs checks it in Chrome
 npm run icons                           # redraw the app's and Android app's icons from brand/*.svg (the logo's master files)
 ```
 
@@ -72,7 +71,9 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
-- **`embed` branch (2026-11-08): a map server and widget for web pages**, `web/map-server/`. Not
+- **`embed` branch (2026-11-08): a map server and widget for web pages**, `map-server/` (its own
+  package and node_modules, like `android/`; `npm run build|test|typecheck|check` there; it
+  reuses `web/src`, taking that code's packages from its own node_modules via `resolve.mjs`). Not
   Varda: no Varda name, links or hosting; anyone with .img maps runs it (`node server.mjs --maps
   <folder>`), and it serves its own `widget.js` (`<div data-img-map=…>`, or `ImgMap.mount()`),
   MapLibre's workers and the fonts. Owner's choices: tiles built on request by a Node server (not

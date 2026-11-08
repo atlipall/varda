@@ -1,6 +1,6 @@
-// Headless-Chrome check of the built map server (npm run map-server first): runs it on the
+// Headless-Chrome check of the built map server (npm run build first): runs it on the
 // GPSmap.is package, embeds the widget in a page from another origin (as a web site would), and
-// checks the map draws with its icons and hillshading. Screenshots go to web/e2e-output/.
+// checks the map draws with its icons and hillshading. Screenshots go to check-output/.
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
-const REPO = fileURLToPath(new URL('../../', import.meta.url));
-const OUT = REPO + 'web/e2e-output/';
+const REPO = fileURLToPath(new URL('../', import.meta.url));
+const OUT = HERE + 'check-output/';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const MAP_PORT = 8097;
 const PAGE_PORT = 8096;

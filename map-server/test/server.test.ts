@@ -7,13 +7,13 @@ import { inflateSync } from 'node:zlib';
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { findMaps, slug } from '../map-server/src/maps';
-import { encodePng } from '../map-server/src/png';
-import { createHandler } from '../map-server/src/server';
-import { buildSprite } from '../map-server/src/sprite';
-import { decodeTerrainRgb } from '../src/dem/hgt';
-import { lonToTileX, latToTileY } from '../src/tiles/tileMath';
-import { DETAILED, hasRealData, REPO } from './helpers/paths';
+import { findMaps, slug } from '../src/maps';
+import { encodePng } from '../src/png';
+import { createHandler } from '../src/server';
+import { buildSprite } from '../src/sprite';
+import { decodeTerrainRgb } from '../../web/src/dem/hgt';
+import { lonToTileX, latToTileY } from '../../web/src/tiles/tileMath';
+import { DETAILED, hasRealData, REPO } from '../../web/test/helpers/paths';
 
 /** The pixels of a PNG written by encodePng (rows unfiltered or filtered "Up"). */
 function decodePng(png: Uint8Array): { width: number; height: number; rgba: Uint8Array } {
@@ -154,7 +154,7 @@ describe.skipIf(!hasRealData)('server on the real map', () => {
     const maps = await mkdtemp(join(tmpdir(), 'map-server-maps-'));
     await symlink(dirname(dirname(DETAILED)), join(maps, 'gpsmap'));
     const found = await findMaps(maps, () => {});
-    ({ server, base } = await listen(createHandler(found, { origins: ['*'], publicDir: REPO + 'web/map-server/dist/public', trustProxy: true })));
+    ({ server, base } = await listen(createHandler(found, { origins: ['*'], publicDir: REPO + 'map-server/dist/public', trustProxy: true })));
   }, 60_000);
   afterAll(() => server.close());
 

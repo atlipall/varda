@@ -8,5 +8,6 @@ node_modules/
 # The Android signing key (kept outside the repo; see .github/workflows/android.yml).
 .android-signing/
 
-# The map server build (web/map-server/build.mjs).
-web/map-server/dist/
+# The map server's build and its browser check's screenshots.
+map-server/dist/
+map-server/check-output/

@@ -1,11 +1,12 @@
-// Builds the map server into map-server/dist/: server.mjs (no dependencies to install; Node 22 or
+// Builds the map server into dist/: server.mjs (no dependencies to install; Node 22 or
 // newer) and public/ (the widget, MapLibre's worker files and the fonts).
 import { cp, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
+import { ownPackages } from './resolve.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
-const WEB = fileURLToPath(new URL('..', import.meta.url));
+const WEB = fileURLToPath(new URL('../web/', import.meta.url));
 const OUT = HERE + 'dist/';
 
 await rm(OUT, { recursive: true, force: true });
@@ -14,6 +15,7 @@ await build({
   configFile: false,
   root: HERE,
   logLevel: 'warn',
+  plugins: [ownPackages()],
   build: {
     outDir: OUT,
     emptyOutDir: false,
@@ -30,6 +32,7 @@ await build({
   configFile: false,
   root: HERE,
   logLevel: 'warn',
+  plugins: [ownPackages()],
   build: {
     outDir: OUT + 'public/',
     emptyOutDir: false,
@@ -46,10 +49,11 @@ await build({
   configFile: false,
   root: HERE,
   logLevel: 'warn',
+  plugins: [ownPackages()],
   build: {
     outDir: OUT + 'public/',
     emptyOutDir: false,
-    lib: { entry: WEB + 'node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs', formats: ['iife'], name: 'maplibreWorker', fileName: () => 'maplibre-gl-worker.cjs' },
+    lib: { entry: HERE + 'node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs', formats: ['iife'], name: 'maplibreWorker', fileName: () => 'maplibre-gl-worker.cjs' },
     rollupOptions: { output: { codeSplitting: false } },
   },
 });

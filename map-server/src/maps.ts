@@ -1,15 +1,15 @@
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
-import { Dem } from '../../src/dem/dem';
-import { decodeHgt, HGT_BYTES, parseHgtName } from '../../src/dem/hgt';
-import { OverviewBuilder } from '../../src/dem/overview';
-import type { ByteSource } from '../../src/img/source';
-import { emptyTyp, parseTyp, type Typ } from '../../src/img/typ';
-import { conventionsFor } from '../../src/map/conventions';
-import { GarminMap } from '../../src/map/garminMap';
-import { normalize } from '../../src/search/normalize';
-import { buildStyle } from '../../src/style/buildStyle';
-import { buildTile, SubdivisionCache } from '../../src/tiles/buildTile';
+import { Dem } from '../../web/src/dem/dem';
+import { decodeHgt, HGT_BYTES, parseHgtName } from '../../web/src/dem/hgt';
+import { OverviewBuilder } from '../../web/src/dem/overview';
+import type { ByteSource } from '../../web/src/img/source';
+import { emptyTyp, parseTyp, type Typ } from '../../web/src/img/typ';
+import { conventionsFor } from '../../web/src/map/conventions';
+import { GarminMap } from '../../web/src/map/garminMap';
+import { normalize } from '../../web/src/search/normalize';
+import { buildStyle } from '../../web/src/style/buildStyle';
+import { buildTile, SubdivisionCache } from '../../web/src/tiles/buildTile';
 import { buildSprite } from './sprite';
 
 type Bounds = [number, number, number, number];
