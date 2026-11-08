@@ -1,4 +1,4 @@
-# Map server
+# Tile server
 
 Puts Garmin `.img` maps on web pages. You run the server where your map files are; it turns them
 into map tiles as they're asked for, and gives web pages a small script that shows the map with
@@ -12,7 +12,7 @@ patterns and icons, and SRTM `.hgt` elevation files give hillshading.
 You need Node.js 22 or newer.
 
 ```bash
-cd map-server
+cd tile-server
 npm install
 npm run build                      # builds dist/
 node dist/server.mjs --maps /path/to/maps
@@ -74,7 +74,7 @@ and keep it running with systemd:
 
 ```ini
 [Service]
-ExecStart=/usr/bin/node /opt/map-server/server.mjs --maps /srv/maps --host 127.0.0.1 --trust-proxy --origins https://example.com
+ExecStart=/usr/bin/node /opt/tile-server/server.mjs --maps /srv/maps --host 127.0.0.1 --trust-proxy --origins https://example.com
 Restart=always
 ```
 

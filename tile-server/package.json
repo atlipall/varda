@@ -1,5 +1,5 @@
 {
-  "name": "img-map-server",
+  "name": "img-tile-server",
   "version": "1.0.0",
   "description": "Serves Garmin .img maps as map tiles, with a widget that shows them on any web page",
   "license": "MIT",

@@ -71,7 +71,7 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
-- **`embed` branch (2026-11-08): a map server and widget for web pages**, `map-server/` (its own
+- **`embed` branch (2026-11-08): a tile server and widget for web pages**, `tile-server/` (its own
   package and node_modules, like `android/`; `npm run build|test|typecheck|check` there; it
   reuses `web/src`, taking that code's packages from its own node_modules via `resolve.mjs`). Not
   Varda: no Varda name, links or hosting; anyone with .img maps runs it (`node server.mjs --maps

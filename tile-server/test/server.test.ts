@@ -106,7 +106,7 @@ describe('server without maps', () => {
   let server: Server;
   let base: string;
   beforeAll(async () => {
-    const pub = await mkdtemp(join(tmpdir(), 'map-server-pub-'));
+    const pub = await mkdtemp(join(tmpdir(), 'tile-server-pub-'));
     await writeFile(join(pub, 'widget.js'), 'export {};');
     await mkdir(join(pub, 'fonts/Noto Sans Regular'), { recursive: true });
     await writeFile(join(pub, 'fonts/Noto Sans Regular/0-255.pbf'), new Uint8Array([1, 2, 3]));
@@ -151,10 +151,10 @@ describe.skipIf(!hasRealData)('server on the real map', () => {
   const id = 'iceland-gpsmap-is-2024-21-detailed';
   beforeAll(async () => {
     // As the README suggests: the map package linked into the maps folder.
-    const maps = await mkdtemp(join(tmpdir(), 'map-server-maps-'));
+    const maps = await mkdtemp(join(tmpdir(), 'tile-server-maps-'));
     await symlink(dirname(dirname(DETAILED)), join(maps, 'gpsmap'));
     const found = await findMaps(maps, () => {});
-    ({ server, base } = await listen(createHandler(found, { origins: ['*'], publicDir: REPO + 'map-server/dist/public', trustProxy: true })));
+    ({ server, base } = await listen(createHandler(found, { origins: ['*'], publicDir: REPO + 'tile-server/dist/public', trustProxy: true })));
   }, 60_000);
   afterAll(() => server.close());
 

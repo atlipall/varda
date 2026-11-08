@@ -22,7 +22,7 @@ export function demoPage(maps: MapInfo[], base: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Map server</title>
+<title>Tile server</title>
 <link rel="icon" href="data:,">
 <style>
   body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 900px; padding: 24px; color: #1a1a1a; }
@@ -35,7 +35,7 @@ export function demoPage(maps: MapInfo[], base: string): string {
 <script type="module" src="${esc(`${base}/widget.js`)}"></script>
 </head>
 <body>
-<h1>Map server</h1>
+<h1>Tile server</h1>
 <p>${maps.length ? `${maps.length} map${maps.length === 1 ? '' : 's'}. To show one on a web page, copy its code.` : 'No maps found. Put .img files in the maps folder and restart the server.'}</p>
 ${items}
 </body>

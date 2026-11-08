@@ -45,7 +45,7 @@ the sign-in helper have their own deployments: see CLAUDE.md for all of them and
 - `web/src/channel.ts`: the development version's separate storage
 - `web/src/app/updates.ts`: the "new version is ready" notice
 - `web/site/`: the instructions page served at the site root
-- `map-server/`: a separate, unbranded map server and web page widget for anyone with Garmin `.img`
+- `tile-server/`: a separate, unbranded tile server and web page widget for anyone with Garmin `.img`
   maps, built from the app's reader in `web/src` (see its README)
 - `android/`: the Android app for head units (opens the app in Chrome as a Trusted Web Activity, with a
   WebView fallback), built on GitHub by `.github/workflows/android.yml`

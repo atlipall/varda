@@ -1,4 +1,4 @@
-// Builds the map server into dist/: server.mjs (no dependencies to install; Node 22 or
+// Builds the tile server into dist/: server.mjs (no dependencies to install; Node 22 or
 // newer) and public/ (the widget, MapLibre's worker files and the fonts).
 import { cp, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';

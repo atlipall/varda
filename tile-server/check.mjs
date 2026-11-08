@@ -1,4 +1,4 @@
-// Headless-Chrome check of the built map server (npm run build first): runs it on the
+// Headless-Chrome check of the built tile server (npm run build first): runs it on the
 // GPSmap.is package, embeds the widget in a page from another origin (as a web site would), and
 // checks the map draws with its icons and hillshading. Screenshots go to check-output/.
 import { spawn } from 'node:child_process';
@@ -17,11 +17,11 @@ const MAP_PORT = 8097;
 const PAGE_PORT = 8096;
 const ID = 'iceland-gpsmap-is-2024-21-detailed';
 const fail = (msg) => {
-  throw new Error(`MAP SERVER CHECK FAILED: ${msg}`);
+  throw new Error(`TILE SERVER CHECK FAILED: ${msg}`);
 };
 
 await mkdir(OUT, { recursive: true });
-const maps = await mkdtemp(join(tmpdir(), 'map-server-'));
+const maps = await mkdtemp(join(tmpdir(), 'tile-server-'));
 await symlink(REPO + 'GPSmap.is 2024.21 Android', join(maps, 'gpsmap'));
 
 let site;
@@ -87,7 +87,7 @@ try {
   if (!report.a.layers.some((l) => l.startsWith('ln-'))) fail('no lines (roads) drawn');
   if (!report.a.hillshade || !report.b.hillshade) fail('no hillshading');
   if (report.zoomButtons !== 2) fail(`expected two sets of zoom buttons, found ${report.zoomButtons}`);
-  await page.screenshot({ path: OUT + 'map-server-embed.png' });
+  await page.screenshot({ path: OUT + 'tile-server-embed.png' });
 
   // Drag the second map (its cooperative gestures are off) and zoom with its + button: headless
   // Chrome's synthetic wheel and double-click don't reach MapLibre.
@@ -102,7 +102,7 @@ try {
   const after = await page.evaluate(() => ({ center: window.mapB.getCenter().toArray(), zoom: window.mapB.getZoom() }));
   console.log('after pan and zoom:', JSON.stringify(after));
   if (after.center[0] <= -16.9 || after.zoom < 10.9) fail('pan or zoom did nothing');
-  await page.screenshot({ path: OUT + 'map-server-embed-moved.png' });
+  await page.screenshot({ path: OUT + 'tile-server-embed-moved.png' });
 
   // A page opened straight from a file, which can't start a module worker from another address.
   const filePage = join(maps, 'page.html');
@@ -119,11 +119,11 @@ try {
   await page.goto(`http://127.0.0.1:${MAP_PORT}/`);
   await page.waitForSelector('.maplibregl-canvas', { timeout: 30_000 });
   await new Promise((r) => setTimeout(r, 4000));
-  await page.screenshot({ path: OUT + 'map-server-front.png' });
+  await page.screenshot({ path: OUT + 'tile-server-front.png' });
 
   const real = problems.filter((p) => !/GPU stall|WebGL|swiftshader/i.test(p));
   if (real.length) fail(`browser reported:\n  ${real.join('\n  ')}`);
-  console.log('map server check passed; screenshots in', OUT);
+  console.log('tile server check passed; screenshots in', OUT);
 } finally {
   await browser?.close();
   site?.close();
