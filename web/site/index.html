@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#2c5a85" />
-  <meta name="description" content="Varda: offline Garmin IMG maps on iPhone, Mac and car head units: how to install the app, load your map and use it in the field." />
+  <meta name="description" content="Varda: offline Garmin IMG maps in any browser, on iPhone and on car head units: how to install the app, load your map and use it in the field." />
   <link rel="icon" href="app/icons/favicon.svg" type="image/svg+xml" />
   <link rel="icon" href="app/icons/icon-192.png" type="image/png" sizes="192x192" />
   <link rel="apple-touch-icon" href="app/icons/apple-touch-icon.png" />
@@ -12,16 +12,17 @@
   <style>
     :root {
       --ink: #1d2a38; --muted: #58636f; --paper: #f4f0e4; --card: #fbf9f3; --line: #ddd5c1;
-      --accent: #2c5a85; --gps: #1f7ae0; --on-accent: #ffffff;
+      --accent: #2c5a85; --gps: #1f7ae0; --on-accent: #ffffff; --earth: #9a5530;
       color-scheme: light;
     }
     @media (prefers-color-scheme: dark) {
-      :root { --ink: #e9e5d9; --muted: #a8b0ba; --paper: #151b22; --card: #1d252e; --line: #323d49; --accent: #86b4e0; --gps: #4d9bf0; --on-accent: #0f1720; color-scheme: dark; }
+      :root { --ink: #e9e5d9; --muted: #a8b0ba; --paper: #151b22; --card: #1d252e; --line: #323d49; --accent: #86b4e0; --gps: #4d9bf0; --on-accent: #0f1720; --earth: #d99a6c; color-scheme: dark; }
     }
     * { box-sizing: border-box; }
     html { -webkit-text-size-adjust: 100%; }
     body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
-    main { max-width: 720px; margin: 0 auto; padding-inline: max(20px, env(safe-area-inset-left)); padding-block: calc(env(safe-area-inset-top) + 32px) calc(env(safe-area-inset-bottom) + 56px); display: grid; gap: 40px; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding-inline: max(20px, env(safe-area-inset-left)); }
+    main { display: grid; gap: 40px; padding-bottom: calc(env(safe-area-inset-bottom) + 56px); max-width: 720px; }
     h1, h2, h3 { line-height: 1.15; text-wrap: balance; margin: 0; }
     h1 { font-size: clamp(32px, 7vw, 44px); letter-spacing: -0.01em; }
     h2 { font-size: 24px; }
@@ -33,10 +34,59 @@
     .key { padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); white-space: nowrap; }
     .muted { color: var(--muted); }
 
-    header { display: grid; gap: 16px; }
-    .brand { display: flex; align-items: center; gap: 14px; }
-    .brand img { width: 56px; height: 56px; }
-    .lead { font-size: 19px; color: var(--muted); max-width: 34em; }
+    /* The top of the page: what the app is, on paper with faint contour lines like a map's. */
+    .top { background: var(--paper) var(--contours) center top / 640px 640px repeat; border-bottom: 1px solid var(--line); }
+    .top { --contours: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640'%3E%3Cg fill='none' stroke='%23cdbd93' opacity='.6'%3E%3Cpath d='M-20 120c80-60 170 40 270-10s190-90 410 10'/%3E%3Cpath d='M-20 160c90-50 180 50 280 0s180-80 400 20'/%3E%3Cpath d='M-20 200c100-40 190 60 290 10s170-70 390 30'/%3E%3Cpath d='M-20 420c120 60 210-40 310 10s190 70 370-20'/%3E%3Cpath d='M-20 460c120 50 220-30 320 20s180 60 360-10'/%3E%3Cellipse cx='480' cy='310' rx='64' ry='36'/%3E%3Cellipse cx='480' cy='310' rx='106' ry='60'/%3E%3Cellipse cx='480' cy='310' rx='26' ry='14'/%3E%3C/g%3E%3C/svg%3E"); }
+    @media (prefers-color-scheme: dark) {
+      .top { --contours: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640'%3E%3Cg fill='none' stroke='%23324152' opacity='.8'%3E%3Cpath d='M-20 120c80-60 170 40 270-10s190-90 410 10'/%3E%3Cpath d='M-20 160c90-50 180 50 280 0s180-80 400 20'/%3E%3Cpath d='M-20 200c100-40 190 60 290 10s170-70 390 30'/%3E%3Cpath d='M-20 420c120 60 210-40 310 10s190 70 370-20'/%3E%3Cpath d='M-20 460c120 50 220-30 320 20s180 60 360-10'/%3E%3Cellipse cx='480' cy='310' rx='64' ry='36'/%3E%3Cellipse cx='480' cy='310' rx='106' ry='60'/%3E%3Cellipse cx='480' cy='310' rx='26' ry='14'/%3E%3C/g%3E%3C/svg%3E"); }
+    }
+    .bar { display: flex; justify-content: space-between; align-items: center; padding-block: calc(env(safe-area-inset-top) + 18px) 0; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; color: var(--ink); text-decoration: none; }
+    .brand img { width: 34px; height: 34px; }
+    .bar nav { display: flex; gap: 20px; font-size: 15px; }
+    .bar nav a { color: var(--muted); text-decoration: none; }
+    .bar nav a:hover { color: var(--accent); }
+    .hero { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 48px; align-items: center; padding-block: 36px 56px; }
+    .hero-text { display: grid; gap: 18px; justify-items: start; }
+    .eyebrow { font: 600 13px/1.3 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.1em; text-transform: uppercase; color: var(--earth); }
+    .hero h1 { font-family: "Iowan Old Style", Palatino, Georgia, serif; font-weight: 600; font-size: clamp(40px, 6.4vw, 68px); line-height: 1.04; letter-spacing: 0; }
+    .hero h1 em { color: var(--accent); }
+    .lead { font-size: 19px; color: var(--muted); max-width: 31em; }
+    .ctas { display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: center; margin-top: 6px; }
+    .ctas .open { border-radius: 999px; }
+    .ctas .alt { font-weight: 600; }
+    .where { font: 13px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+    .phones { position: relative; height: 560px; }
+    .phones img { position: absolute; width: 250px; height: auto; border-radius: 30px; border: 6px solid #10161d; background: #10161d; box-shadow: 0 22px 50px rgba(10, 20, 30, 0.28); }
+    .phones img:first-child { right: 160px; top: 48px; }
+    .phones img:last-child { right: 0; top: 0; }
+    @media (max-width: 800px) {
+      .bar nav { display: none; }
+      .hero { grid-template-columns: 1fr; gap: 32px; padding-block: 24px 40px; }
+      .phones { height: auto; display: flex; gap: 14px; }
+      .phones img { position: static; width: calc(50% - 7px); max-width: 220px; border-width: 4px; border-radius: 24px; }
+      .phones img:last-child { margin-top: -24px; align-self: flex-start; }
+      .phones img:first-child { margin-top: 24px; }
+    }
+
+    /* What it does: a map legend, each entry leading to its part of the guide. */
+    .legend { padding-block: 48px 8px; display: grid; gap: 18px; }
+    .legend h2, .install h2 { font-family: "Iowan Old Style", Palatino, Georgia, serif; font-weight: 600; font-size: 28px; }
+    .legend ul { list-style: none; padding: 0; gap: 0; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); border-top: 2px solid var(--ink); }
+    .legend a { display: grid; grid-template-columns: 36px 1fr; gap: 12px; padding: 16px 12px 16px 0; border-bottom: 1px solid var(--line); color: var(--ink); text-decoration: none; height: 100%; }
+    .legend a:hover b { color: var(--accent); }
+    .legend svg { width: 32px; height: 32px; }
+    .legend b { display: block; }
+    .legend span { color: var(--muted); font-size: 15px; }
+    .install { padding-block: 40px 48px; display: grid; gap: 18px; }
+    .install .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+    .install a { display: grid; gap: 4px; padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; color: var(--ink); text-decoration: none; }
+    .install a:hover { border-color: var(--accent); }
+    .install a b { font-size: 18px; }
+    .install a span { color: var(--muted); font-size: 15px; }
+    .install a i { font-style: normal; color: var(--accent); font-weight: 600; font-size: 15px; }
+    .guide-title { font-family: "Iowan Old Style", Palatino, Georgia, serif; font-weight: 600; font-size: 34px; padding-top: 48px; }
+
     .open { justify-self: start; display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-weight: 600; font-size: 18px; text-decoration: none; }
     .open:focus-visible { outline: 3px solid var(--gps); outline-offset: 3px; }
 
@@ -76,7 +126,8 @@
     #toc .sub a { padding-left: 24px; font-size: 15px; color: var(--muted); }
     section { scroll-margin-top: 56px; }
     @media (min-width: 1100px) {
-      #toc { position: fixed; top: 32px; left: max(20px, calc(50% - 360px - 280px)); width: 240px; margin: 0; padding: 0; border: 0; background: none; }
+      .guide { display: grid; grid-template-columns: 240px minmax(0, 720px); gap: 48px; }
+      #toc { position: sticky; top: 32px; align-self: start; margin: 0; padding: 104px 0 0; border: 0; background: none; }
       #toc summary { display: none; }
       #toc ol { max-height: calc(100vh - 64px); }
       section { scroll-margin-top: 24px; }
@@ -85,17 +136,54 @@
   </style>
 </head>
 <body>
-<main>
-  <header>
-    <div class="brand">
-      <img src="app/icons/favicon.svg" alt="" />
-      <h1>Varda</h1>
+<header class="top">
+  <div class="wrap">
+    <div class="bar">
+      <a class="brand" href="./"><img src="app/icons/favicon.svg" alt="" />Varda</a>
+      <nav aria-label="Pages"><a href="#guide">Guide</a><a href="#android">Android app</a><a href="#privacy">Privacy</a></nav>
     </div>
-    <p class="lead">Your Garmin <code>.img</code> maps on iPhone, Mac and Android car head units, drawn straight from the map file and fully offline, with hillshading, search, GPS follow, route planning, turn-by-turn navigation and saved places.</p>
-    <a class="open" href="app/">Open the map →</a>
-    <div class="shots"><figure><img src="images/map.webp" width="780" height="1688" loading="lazy" alt="The map around Landmannalaugar with hillshading, contour lines, rivers and place names" /><figcaption>Landmannalaugar: the Garmin map with hillshading, offline.</figcaption></figure></div>
-  </header>
+    <div class="hero">
+      <div class="hero-text">
+        <p class="eyebrow">Garmin .img maps · any browser, iPhone, car</p>
+        <h1>Your Garmin map, <em>offline</em>.</h1>
+        <p class="lead">Varda draws Garmin <code>.img</code> maps straight from the map file, with hillshading and contour lines. It finds places, plans routes on the map's own roads and guides you turn by turn, without a phone signal.</p>
+        <div class="ctas"><a class="open" href="app/">Open the map →</a><a class="alt" href="#load">No Garmin map? Get a free map of Iceland</a></div>
+        <p class="where">Pictures: Landmannalaugar, and on the way there on F225</p>
+      </div>
+      <div class="phones">
+        <img src="images/map.webp" width="780" height="1688" alt="The map around Landmannalaugar with hillshading, contour lines, rivers and place names" />
+        <img src="images/navigation.webp" width="780" height="1688" alt="Navigating: a blue banner with the next turn, Turn right onto F225 in 36 km, and the arrival time below" />
+      </div>
+    </div>
+  </div>
+</header>
 
+<div class="wrap">
+  <section class="legend" aria-labelledby="legend-title">
+    <h2 id="legend-title">What it does</h2>
+    <ul>
+      <li><a href="#need"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M2 21c6-8 10 2 14-4s8-6 14-2" fill="none" stroke="var(--earth)" stroke-width="2"/><path d="M2 27c6-6 10 2 14-3s8-4 14-1" fill="none" stroke="var(--earth)" stroke-width="1.2"/></svg><div><b>Hillshading and contours</b><span>From the map and SRTM elevation files.</span></div></a></li>
+      <li><a href="#search"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="14" cy="14" r="8" fill="none" stroke="var(--ink)" stroke-width="2.5"/><path d="m20 20 8 8" stroke="var(--ink)" stroke-width="3" stroke-linecap="round"/></svg><div><b>Search</b><span><i>thorsmork</i> finds Þórsmörk; places near you first.</span></div></a></li>
+      <li><a href="#route"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 26 14 8l6 10 8-6" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg><div><b>Routes and turn-by-turn</b><span>On the map's roads; F-roads allowed or preferred.</span></div></a></li>
+      <li><a href="#location"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gps)" opacity=".35" stroke-width="4"/><circle cx="16" cy="16" r="6" fill="var(--gps)" stroke="#fff" stroke-width="2"/></svg><div><b>Follows you</b><span>North up or heading up; zooms out as you speed up.</span></div></a></li>
+      <li><a href="#tracks"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 24c5-3 7-12 13-12s8 9 13 12" fill="none" stroke="#c0392b" stroke-width="2.5" stroke-dasharray="4 3"/></svg><div><b>Tracks</b><span>GPX in and out; trips recorded in the Android app.</span></div></a></li>
+      <li><a href="#photos"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="10" fill="#e7c76b" stroke="var(--ink)" stroke-width="2"/><path d="M9 21l5-6 3 3 2-2 4 5" fill="none" stroke="var(--ink)" stroke-width="1.6"/></svg><div><b>Photos</b><span>Shown on the map where they were taken.</span></div></a></li>
+      <li><a href="#save"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 5 19 13h8l-6 5 2 8-7-5-7 5 2-8-6-5h8z" fill="#f2b705" stroke="var(--ink)" stroke-width="1.5" stroke-linejoin="round"/></svg><div><b>Saved places</b><span>On the device; synced through Google Drive if you want.</span></div></a></li>
+      <li><a href="#offline"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 12a16 16 0 0 1 22 0M9 17a10 10 0 0 1 14 0M13 22a4 4 0 0 1 6 0" fill="none" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round"/><path d="M5 27 27 5" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round"/></svg><div><b>No signal needed</b><span>Maps, routes and your data stay on the device.</span></div></a></li>
+    </ul>
+  </section>
+
+  <section class="install" aria-labelledby="install-title">
+    <h2 id="install-title">Install</h2>
+    <div class="row">
+      <a href="#iphone"><b>iPhone</b><span>Open the map in Safari, then Share → Add to Home Screen.</span><i>How →</i></a>
+      <a href="#android"><b>Android head unit</b><span>An app that opens the map full screen in the unit's Chrome.</span><i>Download and install →</i></a>
+      <a href="#browser"><b>Any browser</b><span>On a computer, tablet or phone: open the map. Chrome and Edge can install it as an app.</span><i>How →</i></a>
+    </div>
+  </section>
+</div>
+
+<div class="wrap guide">
   <nav id="toc" aria-label="Contents">
     <details>
       <summary>Contents</summary>
@@ -121,13 +209,16 @@
     </details>
   </nav>
 
+<main>
+  <h2 class="guide-title" id="guide">Guide</h2>
+
   <section id="need">
     <h2>What you need</h2>
     <ul>
       <li><b>A Garmin map in <code>.img</code> format</b>, unlocked (not encrypted). For example <a href="https://www.gpsmap.is/">GPSmap.is</a> Iceland: in its Android package the map is in the <span class="key">MAPS</span> folder.</li>
       <li><b>No Garmin map?</b> The app can download a free map of Iceland for you (below): <a href="https://www.freizeitkarte-osm.de/garmin/en/">Freizeitkarte</a>, made from OpenStreetMap, with roads, trails, places, contour lines and routing.</li>
       <li><b>Elevation files (optional)</b>: SRTM <code>.hgt</code> files, such as those in the package's <span class="key">HILLSHADE</span> folder. They add hill shading and the height where you stand.</li>
-      <li>Put the files where your device can open them: on iPhone, the Files app (AirDrop or iCloud Drive work); on Mac, any folder; on an Android head unit, its storage or a USB stick.</li>
+      <li>Put the files where your device can open them: on iPhone, the Files app (AirDrop or iCloud Drive work); on a computer, any folder; on an Android head unit, its storage or a USB stick.</li>
     </ul>
   </section>
 
@@ -138,7 +229,7 @@
       <li><span>Tap <b>Share</b>, then <b>Add to Home Screen</b>.</span></li>
       <li><span>Open the map from its Home Screen icon from now on. The app then runs full screen, and iOS keeps its stored map more reliably than in a browser tab.</span></li>
     </ol>
-    <p class="muted">On a Mac, open the same address in Safari or Chrome. In Safari you can use <b>File → Add to Dock</b>.</p>
+    <p class="muted" id="browser">On a computer, tablet or other phone, open the same address in any up-to-date browser (Safari, Chrome, Edge, Firefox). To keep it as an app: on a Mac in Safari, <b>File → Add to Dock</b>; in Chrome or Edge, <b>Install</b> in the address bar or menu.</p>
   </section>
 
   <section id="android">
@@ -357,6 +448,7 @@
     <p>Made for GPSmap.is maps but works with other unlocked Garmin IMG maps. Map data belongs to its publisher. <a href="#privacy">Privacy policy</a> · <a href="#terms">Terms of service</a> · <a href="https://github.com/atlipall/varda">Source code</a> (MIT License).</p>
   </footer>
 </main>
+</div>
 <script>
   // The contents: open beside the text on wide screens; on phones it folds away after a tap. The
   // section being read is highlighted.
