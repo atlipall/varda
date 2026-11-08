@@ -1,11 +1,14 @@
 # Varda
 
+Garmin maps, in your browser.
+
 A web app that shows Garmin `.img` maps (such as GPSmap.is Iceland) on iPhone, Mac and Android car head units,
 drawn straight from the map file in the browser and fully offline: hillshading from SRTM `.hgt` files, place
 search, GPS follow with heading-up and ground height, GPX tracks, route planning by road with turn-by-turn
 navigation, saved places, and optional Google Drive sync.
 
 Live at <https://vardamaps.app/> (instructions) and <https://vardamaps.app/app/> (the app). The map and elevation files stay on the user's device; nothing is uploaded.
+Free and open source under the [MIT License](LICENSE).
 
 ## Development
 
