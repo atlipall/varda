@@ -3,8 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { StyleSpecification } from 'maplibre-gl';
-import { DEM_MAX_ZOOM, TILE_SIZE } from '../../web/src/dem/dem';
-import { MAX_ZOOM, MIN_ZOOM } from '../../web/src/map/zoom';
+import { DEM_MAX_ZOOM, DEM_TILE_SIZE, MAX_ZOOM, MIN_ZOOM } from '../../web/src/map/zoom';
 import { buildStyle } from '../../web/src/style/buildStyle';
 import { demoPage } from './demo';
 import type { ServedMap } from './maps';
@@ -94,6 +93,27 @@ class TileCache {
   }
 }
 
+interface Reply {
+  body: Body;
+  maxAge: number;
+  /** Has the server's address in it, taken from the request unless --public-url is set. */
+  addressed?: boolean;
+}
+
+/** Whether the client takes gzip: listed (or "*") without q=0. */
+export function acceptsGzip(header: string | string[] | undefined): boolean {
+  let gzip: boolean | null = null;
+  let any = false;
+  for (const part of String(header ?? '').split(',')) {
+    const [name, ...params] = part.trim().toLowerCase().split(';').map((p) => p.trim());
+    const q = params.find((p) => p.startsWith('q='));
+    const ok = !q || Number(q.slice(2)) > 0;
+    if (name === 'gzip') gzip = ok;
+    else if (name === '*') any = ok;
+  }
+  return gzip ?? any;
+}
+
 class HttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -140,7 +160,7 @@ export function createHandler(maps: Map<string, ServedMap>, opts: ServerOptions)
       sprite: `${at}/sprite?v=${m.version}`,
       bounds: m.map.bounds,
       ...(m.credit ? { attribution: m.credit } : {}),
-      ...(terrain ? { dem: `${at}/terrain/{z}/{x}/{y}.png?v=${m.version}`, demBounds: terrain } : {}),
+      ...(terrain ? { dem: `${at}/terrain/{z}/{x}/{y}.png?v=${m.terrainVersion}`, demBounds: terrain } : {}),
     });
     return { ...style, name: m.name };
   };
@@ -152,9 +172,9 @@ export function createHandler(maps: Map<string, ServedMap>, opts: ServerOptions)
     return [z, x, y];
   };
 
-  const mapRoute = async (m: ServedMap, rest: string, base: string): Promise<{ body: Body; maxAge: number }> => {
-    if (rest === '' || rest === '/') return { body: new Body(JSON.stringify(info(m, base)), TYPES['.json']), maxAge: 60 };
-    if (rest === '/style.json') return { body: new Body(JSON.stringify(style(m, base)), TYPES['.json']), maxAge: 60 };
+  const mapRoute = async (m: ServedMap, rest: string, base: string): Promise<Reply> => {
+    if (rest === '' || rest === '/') return { body: new Body(JSON.stringify(info(m, base)), TYPES['.json']), maxAge: 60, addressed: true };
+    if (rest === '/style.json') return { body: new Body(JSON.stringify(style(m, base)), TYPES['.json']), maxAge: 60, addressed: true };
     let match = SPRITE.exec(rest);
     if (match) {
       const body = await tiles.get(`${m.id}/sprite.${match[1]}`, async () =>
@@ -169,7 +189,7 @@ export function createHandler(maps: Map<string, ServedMap>, opts: ServerOptions)
     if ((match = TERRAIN.exec(rest))) {
       if (!m.terrainBounds) throw new HttpError(404, 'this map has no terrain');
       const [z, x, y] = tileXY(match, 0, DEM_MAX_ZOOM);
-      const body = await tiles.get(`${m.id}/terrain/${z}/${x}/${y}`, async () => new Body(encodePng(TILE_SIZE, TILE_SIZE, await m.terrainTile(z, x, y)), TYPES['.png']));
+      const body = await tiles.get(`${m.id}/terrain/${z}/${x}/${y}`, async () => new Body(encodePng(DEM_TILE_SIZE, DEM_TILE_SIZE, await m.terrainTile(z, x, y)), TYPES['.png']));
       return { body, maxAge: DAY };
     }
     throw new HttpError(404, 'not found');
@@ -191,10 +211,10 @@ export function createHandler(maps: Map<string, ServedMap>, opts: ServerOptions)
     return body;
   };
 
-  const route = async (req: IncomingMessage, path: string): Promise<{ body: Body; maxAge: number }> => {
+  const route = async (req: IncomingMessage, path: string): Promise<Reply> => {
     const base = baseUrl(req);
-    if (path === '/' || path === '/index.html') return { body: new Body(demoPage(list(base), base), TYPES['.html']), maxAge: 60 };
-    if (path === '/maps' || path === '/maps/') return { body: new Body(JSON.stringify(list(base)), TYPES['.json']), maxAge: 60 };
+    if (path === '/' || path === '/index.html') return { body: new Body(demoPage(list(base), base), TYPES['.html']), maxAge: 60, addressed: true };
+    if (path === '/maps' || path === '/maps/') return { body: new Body(JSON.stringify(list(base)), TYPES['.json']), maxAge: 60, addressed: true };
     const mm = /^\/maps\/([^/]+)(\/.*)?$/.exec(path);
     if (mm) {
       const m = maps.get(mm[1]);
@@ -227,13 +247,14 @@ export function createHandler(maps: Map<string, ServedMap>, opts: ServerOptions)
       return;
     }
     route(req, path).then(
-      ({ body, maxAge }) => {
-        const gzip = body.gzipped && /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''));
+      ({ body, maxAge, addressed }) => {
+        const gzip = body.gzipped && acceptsGzip(req.headers['accept-encoding']);
         const data = gzip ? body.gzipped! : body.raw;
         if (body.gzipped) vary.push('Accept-Encoding');
         res.writeHead(200, {
           'Content-Type': body.type,
-          'Cache-Control': `public, max-age=${maxAge}`,
+          // Built from the Host the client sent: not for shared caches, which might hand it to others.
+          'Cache-Control': `${addressed && !publicUrl ? 'private' : 'public'}, max-age=${maxAge}`,
           'Content-Length': String(data.length),
           ...(gzip ? { 'Content-Encoding': 'gzip' } : {}),
           ...(vary.length ? { Vary: vary.join(', ') } : {}),

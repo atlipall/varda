@@ -43,8 +43,9 @@ export async function mount(element: HTMLElement, opts: MountOptions): Promise<m
   const info = (await res.json()) as { bounds: [number, number, number, number]; style: string };
   if (!element.style.height && element.clientHeight === 0) element.style.height = '400px';
   const [w, s, e, n] = info.bounds;
-  const view = opts.center
-    ? { center: [opts.center[1], opts.center[0]] as [number, number], zoom: opts.zoom ?? 10 }
+  // A zoom without a center is around the middle of the map; neither shows the whole map.
+  const view = opts.center || opts.zoom !== undefined
+    ? { center: (opts.center ? [opts.center[1], opts.center[0]] : [(w + e) / 2, (s + n) / 2]) as [number, number], zoom: opts.zoom ?? 10 }
     : { bounds: [[w, s], [e, n]] as [[number, number], [number, number]], fitBoundsOptions: { padding: 10 } };
   const map = new maplibregl.Map({
     container: element,
@@ -83,10 +84,17 @@ export function mountAll(root: ParentNode = document): void {
   for (const el of root.querySelectorAll<HTMLElement>('[data-img-map]')) {
     if (mounted.has(el)) continue;
     mounted.add(el);
+    if (el.dataset.imgMapFailed !== undefined) {
+      delete el.dataset.imgMapFailed;
+      el.textContent = '';
+    }
     mount(el, optionsOf(el)).then(
       (map) => el.dispatchEvent(new CustomEvent('mapready', { detail: { map } })),
       (error) => {
         console.error('map widget:', error);
+        // Left out of `mounted`, so a later mountAll() tries again.
+        mounted.delete(el);
+        el.dataset.imgMapFailed = '';
         el.textContent = `The map could not be shown: ${error instanceof Error ? error.message : error}`;
         el.dispatchEvent(new CustomEvent('maperror', { detail: { error } }));
       },

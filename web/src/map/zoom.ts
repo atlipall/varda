@@ -1,6 +1,11 @@
 export const ZOOM_OFFSET = 11;
 export const MIN_ZOOM = 4;
 export const MAX_ZOOM = 14;
+/** Terrain tiles: their size in pixels, and the zooms the map asks for them at (MapLibre enlarges
+ *  zoom 11's beyond it). */
+export const DEM_TILE_SIZE = 256;
+export const DEM_MIN_ZOOM = 5;
+export const DEM_MAX_ZOOM = 11;
 /** Line types for roads and tracks (Garmin 0x01-0x13; GPSmap.is puts the F-roads at 0x0d, 0x11-0x13). */
 export const isRoadType = (t: number) => t >= 0x01 && t <= 0x13;
 /** From this zoom up to ROADS_LEVEL_ZOOM, tiles take their roads from ROADS_LEVEL_ZOOM's level:

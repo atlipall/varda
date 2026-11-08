@@ -50,8 +50,8 @@ server after changing the folder.
 | `--maps` | `MAPS` | `./maps` | The maps folder |
 | `--port` | `PORT` | `8080` | |
 | `--host` | `HOST` | `0.0.0.0` | |
-| `--origins` | `ORIGINS` | `*` (any) | Web sites allowed to show the maps, comma separated: `https://example.com,https://www.example.com` |
-| `--public-url` | `PUBLIC_URL` | from the request | The server's address as people reach it (`https://maps.example.com`) |
+| `--origins` | `ORIGINS` | `*` (any) | Web sites allowed to show the maps, comma separated: `https://example.com,https://www.example.com`. Add `null` to also allow pages opened from disk (and any other page without an address, such as sandboxed frames) |
+| `--public-url` | `PUBLIC_URL` | from the request | The server's address as people reach it (`https://maps.example.com`). Set it if a CDN or caching proxy is in front: without it, the responses that hold the address are marked for browsers only |
 | `--trust-proxy` | `TRUST_PROXY=1` | off | Take that address from the `X-Forwarded-Host` and `X-Forwarded-Proto` headers a proxy in front sets. Only behind such a proxy: anyone can send them |
 | `--cache-mb` | `CACHE_MB` | `256` | Memory for tiles already built. Each map also keeps up to roughly 100 MB of decoded map data |
 
@@ -89,13 +89,15 @@ Restart=always
 | Attribute | |
 |---|---|
 | `data-img-map` | The map (as listed on the server's front page or at `/maps`) |
-| `data-center` | Latitude, longitude. Without it, the whole map is shown |
-| `data-zoom` | 4 (a country) to 18 (a street). Default 10 |
+| `data-center` | Latitude, longitude. Default: the middle of the map |
+| `data-zoom` | 4 (a country) to 18 (a street). Default 10. Without `data-center` and `data-zoom`, the whole map is shown |
 | `data-cooperative="false"` | Scrolling over the map zooms it. By default the page scrolls, and the map zooms with Ctrl/⌘ + scroll or two fingers |
 
-The page can be anywhere: on any web site, or an .html file opened straight from disk.
+The page can be anywhere: on any web site, or an .html file opened straight from disk (with
+`--origins` left at `*`, or with `null` in its list).
 
-Each map fires `mapready` with the map in `event.detail.map`, or `maperror`.
+Each map fires `mapready` with the map in `event.detail.map`, or `maperror` (and shows why). For
+maps added to the page later, or to try failed ones again, call `ImgMap.mountAll()`.
 
 From your own code:
 

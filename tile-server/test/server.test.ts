@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -9,9 +9,9 @@ import { PbfReader } from 'pbf';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { findMaps, slug } from '../src/maps';
 import { encodePng } from '../src/png';
-import { createHandler } from '../src/server';
+import { acceptsGzip, createHandler } from '../src/server';
 import { buildSprite } from '../src/sprite';
-import { decodeTerrainRgb } from '../../web/src/dem/hgt';
+import { decodeTerrainRgb, HGT_BYTES } from '../../web/src/dem/hgt';
 import { lonToTileX, latToTileY } from '../../web/src/tiles/tileMath';
 import { DETAILED, hasRealData, REPO } from '../../web/test/helpers/paths';
 
@@ -102,6 +102,17 @@ async function listen(handler: ReturnType<typeof createHandler>): Promise<{ serv
   return { server, base: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
 
+test('acceptsGzip', () => {
+  expect(acceptsGzip('gzip, deflate, br')).toBe(true);
+  expect(acceptsGzip('br;q=1.0, GZIP;q=0.5')).toBe(true);
+  expect(acceptsGzip('gzip;q=0, identity')).toBe(false);
+  expect(acceptsGzip('*')).toBe(true);
+  expect(acceptsGzip('*;q=0')).toBe(false);
+  expect(acceptsGzip('gzip;q=0, *')).toBe(false);
+  expect(acceptsGzip('identity')).toBe(false);
+  expect(acceptsGzip(undefined)).toBe(false);
+});
+
 describe('server without maps', () => {
   let server: Server;
   let base: string;
@@ -133,6 +144,11 @@ describe('server without maps', () => {
   test('ignores X-Forwarded-Host unless told to trust a proxy', async () => {
     const page = await (await fetch(`${base}/`, { headers: { 'X-Forwarded-Host': 'evil.example' } })).text();
     expect(page).not.toContain('evil.example');
+  });
+
+  test('responses holding the address taken from the request are for browsers only', async () => {
+    expect((await fetch(`${base}/maps`)).headers.get('cache-control')).toBe('private, max-age=60');
+    expect((await fetch(`${base}/widget.js`)).headers.get('cache-control')).toMatch(/^public/);
   });
 
   test('lets only the listed sites use it', async () => {
@@ -218,4 +234,49 @@ describe.skipIf(!hasRealData)('server on the real map', () => {
     expect(top).toBeGreaterThan(1300);
     expect(top).toBeLessThan(1600);
   });
+});
+
+describe.skipIf(!hasRealData)('finding maps', () => {
+  test('a folder or map reached twice through links is used once', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tile-server-links-'));
+    await mkdir(join(root, 'a'));
+    await symlink(DETAILED, join(root, 'a', 'map.img'));
+    await symlink(join(root, 'a'), join(root, 'a', 'loop'));
+    await symlink(join(root, 'a'), join(root, 'b'));
+    await symlink(DETAILED, join(root, 'again.img'));
+    const maps = await findMaps(root, () => {});
+    expect([...maps.keys()]).toEqual(['map']);
+  }, 30_000);
+
+  test('terrain that can\'t be read is dropped, so its tiles aren\'t offered', async () => {
+    if (process.getuid?.() === 0) return; // root reads files whatever their permissions
+    const root = await mkdtemp(join(tmpdir(), 'tile-server-bad-hgt-'));
+    await mkdir(join(root, 'pkg'));
+    await symlink(DETAILED, join(root, 'pkg', 'map.img'));
+    const hgt = join(root, 'pkg', 'n64w019.hgt');
+    await writeFile(hgt, new Uint8Array(HGT_BYTES));
+    await chmod(hgt, 0);
+    const errors: unknown[] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    try {
+      const m = (await findMaps(root, () => {})).get('map')!;
+      expect(m.terrainBounds).toEqual([-19, 64, -18, 65]);
+      m.warmUp();
+      await expect(m.terrainTile(10, 0, 0)).rejects.toThrow();
+      expect(m.terrainBounds).toBeNull();
+      expect(errors).toHaveLength(1);
+      const { server, base } = await listen(createHandler(new Map([['map', m]]), { origins: ['*'], publicDir: root }));
+      try {
+        const style = await (await fetch(`${base}/maps/map/style.json`)).json();
+        expect(style.sources.dem).toBeUndefined();
+        expect((await fetch(`${base}/maps/map/terrain/10/449/272.png`)).status).toBe(404);
+      } finally {
+        server.close();
+      }
+    } finally {
+      console.error = error;
+      await chmod(hgt, 0o644);
+    }
+  }, 30_000);
 });

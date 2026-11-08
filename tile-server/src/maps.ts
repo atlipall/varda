@@ -1,4 +1,4 @@
-import { open, readdir, readFile, stat } from 'node:fs/promises';
+import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 import { Dem } from '../../web/src/dem/dem';
 import { decodeHgt, HGT_BYTES, parseHgtName } from '../../web/src/dem/hgt';
@@ -29,21 +29,40 @@ export async function fileSource(path: string): Promise<ByteSource & { close(): 
   };
 }
 
+interface FoundFile {
+  path: string;
+  size: number;
+  mtimeMs: number;
+}
+
+/** Changes when any of the files does, so browsers and proxies don't keep old tiles. */
+const versionOf = (files: FoundFile[]) =>
+  `${files.reduce((n, f) => n + f.size, 0).toString(36)}-${Math.round(Math.max(...files.map((f) => f.mtimeMs))).toString(36)}-${files.length}`;
+
 /** Terrain from the .hgt files of one folder, shared by its maps. */
 class Terrain {
   /** Sorted by name in code-point order, as the app applies them on import: shared tile edges are
    *  "last write wins", so the order decides which file's edge is used. */
   private readonly files: Array<{ path: string; name: string; south: number; west: number }>;
-  readonly bounds: Bounds;
+  private readonly area: Bounds;
+  readonly version: string;
   private dem: Promise<Dem> | null = null;
+  private failed = false;
 
-  constructor(paths: string[]) {
-    this.files = paths
-      .map((path) => ({ path, name: basename(path).toLowerCase(), ...parseHgtName(basename(path))! }))
+  constructor(found: FoundFile[]) {
+    this.files = found
+      .map(({ path }) => ({ path, name: basename(path).toLowerCase(), ...parseHgtName(basename(path))! }))
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const souths = this.files.map((f) => f.south);
     const wests = this.files.map((f) => f.west);
-    this.bounds = [Math.min(...wests), Math.min(...souths), Math.max(...wests) + 1, Math.max(...souths) + 1];
+    this.area = [Math.min(...wests), Math.min(...souths), Math.max(...wests) + 1, Math.max(...souths) + 1];
+    this.version = versionOf(found);
+  }
+
+  /** Where the terrain is (known from the file names alone), or null once it turned out unreadable,
+   *  so the maps stop offering hillshading instead of failing on every terrain tile. */
+  get bounds(): Bounds | null {
+    return this.failed ? null : this.area;
   }
 
   get count(): number {
@@ -67,7 +86,10 @@ class Terrain {
           throw err;
         }
       })();
-      this.dem.catch((err) => console.error(`Terrain from ${this.files.length} .hgt files could not be read; no hillshading:`, err));
+      this.dem.catch((err) => {
+        this.failed = true;
+        console.error(`Terrain from ${this.files.length} .hgt files could not be read; no hillshading:`, err);
+      });
     }
     return this.dem;
   }
@@ -87,11 +109,10 @@ export class ServedMap {
     readonly version: string,
   ) {}
 
-  static async open(id: string, file: string, terrain: Terrain | null): Promise<ServedMap> {
-    const src = await fileSource(file);
+  static async open(file: FoundFile, id: string, terrain: Terrain | null): Promise<ServedMap> {
+    const src = await fileSource(file.path);
     try {
-      const st = await stat(file);
-      return new ServedMap(id, file, await GarminMap.open(src), terrain, `${st.size.toString(36)}-${Math.round(st.mtimeMs).toString(36)}`);
+      return new ServedMap(id, file.path, await GarminMap.open(src), terrain, versionOf([file]));
     } catch (err) {
       await src.close();
       throw err;
@@ -129,9 +150,14 @@ export class ServedMap {
     return (await buildTile(this.map, this.cache, z, x, y)).data;
   }
 
-  /** Where the terrain is [west, south, east, north] (known from the file names alone), or null. */
+  /** Where the terrain is [west, south, east, north], or null without (readable) terrain. */
   get terrainBounds(): Bounds | null {
     return this.terrain?.bounds ?? null;
+  }
+
+  /** Changes when the .hgt files do (the map's own version follows its .img). */
+  get terrainVersion(): string {
+    return this.terrain?.version ?? '';
   }
 
   async terrainTile(z: number, x: number, y: number): Promise<Uint8ClampedArray> {
@@ -151,56 +177,66 @@ export function slug(fileName: string): string {
 }
 
 /** A folder's entries, sorted, with symbolic links followed (a maps folder often links to packages). */
-async function entries(dir: string): Promise<Array<{ name: string; path: string; dir: boolean; file: boolean; size: number }>> {
+async function entries(dir: string): Promise<Array<FoundFile & { name: string; dir: boolean; file: boolean }>> {
   const out = [];
   for (const e of await readdir(dir, { withFileTypes: true })) {
     if (e.name.startsWith('.')) continue;
     const path = join(dir, e.name);
     const st = await stat(path).catch(() => null);
-    if (st) out.push({ name: e.name, path, dir: st.isDirectory(), file: st.isFile(), size: st.size });
+    if (st) out.push({ name: e.name, path, dir: st.isDirectory(), file: st.isFile(), size: st.size, mtimeMs: st.mtimeMs });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-async function walk(dir: string, depth = 0): Promise<Array<{ path: string; size: number }>> {
-  const out: Array<{ path: string; size: number }> = [];
-  for (const e of await entries(dir)) {
-    if (e.dir && depth < 8) out.push(...(await walk(e.path, depth + 1)));
-    else if (e.file) out.push(e);
-  }
-  return out;
 }
 
 /**
  * Every map in a folder. Each .img file is a map, named after its file. An .img right in the folder
  * has no terrain; the .img files inside a subfolder share the .hgt files anywhere in that subfolder
- * (as a GPSmap.is package keeps its maps and elevation files side by side).
+ * (as a GPSmap.is package keeps its maps and elevation files side by side). A folder or file reached
+ * twice through links is used once.
  */
 export async function findMaps(root: string, log: (msg: string) => void = console.log): Promise<Map<string, ServedMap>> {
   const maps = new Map<string, ServedMap>();
-  const add = async (file: string, terrain: Terrain | null) => {
-    const base = slug(basename(file));
+  const seen = new Set<string>();
+  /** True the first time a file or folder (by its real path) comes up. */
+  const first = async (path: string) => {
+    const real = await realpath(path);
+    if (seen.has(real)) return false;
+    seen.add(real);
+    return true;
+  };
+  const walk = async (dir: string): Promise<FoundFile[]> => {
+    const out: FoundFile[] = [];
+    for (const e of await entries(dir)) {
+      if (!(await first(e.path))) continue;
+      if (e.dir) out.push(...(await walk(e.path)));
+      else if (e.file) out.push(e);
+    }
+    return out;
+  };
+  const add = async (file: FoundFile, terrain: Terrain | null) => {
+    const base = slug(basename(file.path));
     let id = base;
     for (let n = 2; maps.has(id); n++) id = `${base}-${n}`;
     try {
-      maps.set(id, await ServedMap.open(id, file, terrain));
-      log(`  ${id}  (${relative(root, file)}${terrain ? `, terrain from ${terrain.count} .hgt files` : ''})`);
+      maps.set(id, await ServedMap.open(file, id, terrain));
+      log(`  ${id}  (${relative(root, file.path)}${terrain ? `, terrain from ${terrain.count} .hgt files` : ''})`);
     } catch (err) {
-      log(`  skipped ${relative(root, file)}: ${err instanceof Error ? err.message : err}`);
+      log(`  skipped ${relative(root, file.path)}: ${err instanceof Error ? err.message : err}`);
     }
   };
-  for (const { name, path, dir, file } of await entries(root)) {
-    if (file && /\.img$/i.test(name)) await add(path, null);
-    if (!dir) continue;
-    const files = (await walk(path)).sort((a, b) => (a.path < b.path ? -1 : 1));
-    const hgt: string[] = [];
+  for (const e of await entries(root)) {
+    if (!(await first(e.path))) continue;
+    if (e.file && /\.img$/i.test(e.name)) await add(e, null);
+    if (!e.dir) continue;
+    const files = (await walk(e.path)).sort((a, b) => (a.path < b.path ? -1 : 1));
+    const hgt: FoundFile[] = [];
     for (const f of files.filter((f) => /\.hgt$/i.test(f.path))) {
       if (!parseHgtName(basename(f.path))) log(`  skipped ${relative(root, f.path)}: not named like n64w019.hgt`);
       else if (f.size !== HGT_BYTES) log(`  skipped ${relative(root, f.path)}: not a 1201×1201 SRTM3 file`);
-      else hgt.push(f.path);
+      else hgt.push(f);
     }
     const terrain = hgt.length ? new Terrain(hgt) : null;
-    for (const f of files.filter((f) => /\.img$/i.test(f.path))) await add(f.path, terrain);
+    for (const f of files.filter((f) => /\.img$/i.test(f.path))) await add(f, terrain);
   }
   return maps;
 }

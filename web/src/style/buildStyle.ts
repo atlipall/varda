@@ -1,7 +1,6 @@
 import type { LayerSpecification, StyleSpecification } from 'maplibre-gl';
-import { DEM_MAX_ZOOM, DEM_MIN_ZOOM, TILE_SIZE } from '../dem/dem';
 import type { LineStyle, RgbaImage, Typ } from '../img/typ';
-import { CONTOUR_LINE_TYPES, MAX_ZOOM, MIN_ZOOM } from '../map/zoom';
+import { CONTOUR_LINE_TYPES, DEM_MAX_ZOOM, DEM_MIN_ZOOM, DEM_TILE_SIZE, MAX_ZOOM, MIN_ZOOM } from '../map/zoom';
 import { BACKGROUND, DEFAULT_LINE, DEFAULT_LINE_PRIORITY, LINE_PRIORITY, LINE_STYLES, POLYGON_COLORS, SKIP_POLYGONS } from './fallback';
 
 export const FONT_REGULAR = 'Noto Sans Regular';
@@ -121,7 +120,7 @@ export function buildStyle(typ: Typ, opts: StyleOptions): { style: StyleSpecific
     },
   };
   if (opts.dem) {
-    sources.dem = { type: 'raster-dem', tiles: [opts.dem], tileSize: TILE_SIZE, minzoom: DEM_MIN_ZOOM, maxzoom: DEM_MAX_ZOOM, encoding: 'mapbox', ...(opts.demBounds ? { bounds: opts.demBounds } : {}) } as StyleSpecification['sources']['raster-dem'];
+    sources.dem = { type: 'raster-dem', tiles: [opts.dem], tileSize: DEM_TILE_SIZE, minzoom: DEM_MIN_ZOOM, maxzoom: DEM_MAX_ZOOM, encoding: 'mapbox', ...(opts.demBounds ? { bounds: opts.demBounds } : {}) } as StyleSpecification['sources']['raster-dem'];
   }
 
   const style: StyleSpecification = {

@@ -2,12 +2,10 @@ import { ImgError } from '../img/bytes';
 import type { ByteSource } from '../img/source';
 import { decodeHgt, encodeTerrainRgb, HGT_BYTES, HGT_SIZE, HGT_STEP, parseHgtName } from './hgt';
 import type { Overview } from './overview';
+import { DEM_TILE_SIZE } from '../map/zoom';
 
-export const TILE_SIZE = 256;
+export const TILE_SIZE = DEM_TILE_SIZE;
 export const OVERVIEW_MAX_ZOOM = 8;
-/** The zooms the map asks for terrain tiles at (MapLibre enlarges zoom 11's beyond it). */
-export const DEM_MIN_ZOOM = 5;
-export const DEM_MAX_ZOOM = 11;
 const ROW_BYTES = HGT_SIZE * 2;
 
 interface Placed {

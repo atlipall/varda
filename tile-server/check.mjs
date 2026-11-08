@@ -40,12 +40,14 @@ try {
 <script type="module" src="http://127.0.0.1:${MAP_PORT}/widget.js"></script>
 <div id="a" data-img-map="${ID}" data-center="64.1466,-21.9426" data-zoom="12" style="height:420px"></div>
 <div id="b" style="height:420px"></div>
+<div id="z" data-img-map="${ID}" data-zoom="8" style="height:200px"></div>
 <script type="module">
   window.mapB = await ImgMap.mount(document.getElementById('b'), { map: '${ID}', center: [64.02, -16.9], zoom: 10, cooperativeGestures: false });
   new ImgMap.maplibregl.Marker().setLngLat([-16.9, 64.02]).addTo(window.mapB);
 </script>
 <script>
   document.getElementById('a').addEventListener('mapready', (e) => (window.mapA = e.detail.map));
+  document.getElementById('z').addEventListener('mapready', (e) => (window.mapZ = e.detail.map));
 </script>
 </body></html>`);
   });
@@ -65,7 +67,12 @@ try {
     page.waitForFunction((n) => window[n]?.loaded() && window[n].areTilesLoaded() && !window[n].isMoving(), { timeout: 60_000, polling: 250 }, name);
   await settled('mapA');
   await settled('mapB');
+  await settled('mapZ');
   await new Promise((r) => setTimeout(r, 1000));
+
+  // A zoom without a center: that zoom, around the middle of the map.
+  const z = await page.evaluate(() => ({ zoom: window.mapZ.getZoom(), center: window.mapZ.getCenter().toArray() }));
+  if (Math.abs(z.zoom - 8) > 0.01 || Math.abs(z.center[0] + 19) > 0.1 || Math.abs(z.center[1] - 65) > 0.1) fail(`zoom-only map at ${JSON.stringify(z)}`);
 
   const report = await page.evaluate(() => {
     const look = (map) => {
@@ -86,7 +93,7 @@ try {
   if (!report.a.layers.some((l) => l.startsWith('pg-'))) fail('no areas drawn');
   if (!report.a.layers.some((l) => l.startsWith('ln-'))) fail('no lines (roads) drawn');
   if (!report.a.hillshade || !report.b.hillshade) fail('no hillshading');
-  if (report.zoomButtons !== 2) fail(`expected two sets of zoom buttons, found ${report.zoomButtons}`);
+  if (report.zoomButtons !== 3) fail(`expected three sets of zoom buttons, found ${report.zoomButtons}`);
   await page.screenshot({ path: OUT + 'tile-server-embed.png' });
 
   // Drag the second map (its cooperative gestures are off) and zoom with its + button: headless
