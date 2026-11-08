@@ -93,6 +93,8 @@ Restart=always
 | `data-zoom` | 4 (a country) to 18 (a street). Default 10 |
 | `data-cooperative="false"` | Scrolling over the map zooms it. By default the page scrolls, and the map zooms with Ctrl/⌘ + scroll or two fingers |
 
+The page can be anywhere: on any web site, or an .html file opened straight from disk.
+
 Each map fires `mapready` with the map in `event.detail.map`, or `maperror`.
 
 From your own code:

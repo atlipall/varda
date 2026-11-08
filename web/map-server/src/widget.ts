@@ -23,6 +23,8 @@ export interface MountOptions {
 }
 
 const SCRIPT_BASE = new URL('.', import.meta.url).href.replace(/\/$/, '');
+// See build.mjs: a plain-script worker, so the map also works on a page opened from a file.
+maplibregl.setWorkerUrl(`${SCRIPT_BASE}/maplibre-gl-worker.cjs`);
 
 function addCss(): void {
   if (document.querySelector('style[data-img-map-css]')) return;

@@ -40,7 +40,7 @@ export interface MapInfo {
 
 const TYPES: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
+  '.cjs': 'text/javascript; charset=utf-8',
   '.pbf': 'application/x-protobuf',
   '.png': 'image/png',
   '.json': 'application/json; charset=utf-8',

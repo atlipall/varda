@@ -39,10 +39,19 @@ await build({
   },
 });
 
-// MapLibre finds its worker next to its own code (see ../scripts/copy-maplibre-worker.mjs), which
-// here is widget.js.
-for (const name of ['maplibre-gl-worker.mjs', 'maplibre-gl-shared.mjs']) {
-  await cp(WEB + 'node_modules/maplibre-gl/dist/' + name, OUT + 'public/' + name);
-}
+// MapLibre's worker as one plain script. Its own worker is a module, which a page opened from a
+// file (file://) can't start from another address; given a .cjs URL, MapLibre fetches the script
+// and starts it from a blob instead, which works from any page.
+await build({
+  configFile: false,
+  root: HERE,
+  logLevel: 'warn',
+  build: {
+    outDir: OUT + 'public/',
+    emptyOutDir: false,
+    lib: { entry: WEB + 'node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs', formats: ['iife'], name: 'maplibreWorker', fileName: () => 'maplibre-gl-worker.cjs' },
+    rollupOptions: { output: { codeSplitting: false } },
+  },
+});
 await cp(WEB + 'fonts/', OUT + 'public/fonts/', { recursive: true });
 console.log(`Built ${OUT}`);

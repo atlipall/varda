@@ -2,7 +2,7 @@
 // GPSmap.is package, embeds the widget in a page from another origin (as a web site would), and
 // checks the map draws with its icons and hillshading. Screenshots go to web/e2e-output/.
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -103,6 +103,17 @@ try {
   console.log('after pan and zoom:', JSON.stringify(after));
   if (after.center[0] <= -16.9 || after.zoom < 10.9) fail('pan or zoom did nothing');
   await page.screenshot({ path: OUT + 'map-server-embed-moved.png' });
+
+  // A page opened straight from a file, which can't start a module worker from another address.
+  const filePage = join(maps, 'page.html');
+  await writeFile(filePage, `<!doctype html><script type="module" src="http://127.0.0.1:${MAP_PORT}/widget.js"></script>
+<div id="f" data-img-map="${ID}" data-center="64.1466,-21.9426" data-zoom="12" style="height:400px"></div>
+<script>document.getElementById('f').addEventListener('mapready', (e) => (window.mapF = e.detail.map));</script>`);
+  await page.goto(`file://${filePage}`);
+  await settled('mapF');
+  const fromFile = await page.evaluate(() => window.mapF.queryRenderedFeatures().length);
+  console.log('page from a file:', fromFile, 'features');
+  if (fromFile < 50) fail(`the page opened from a file drew ${fromFile} features`);
 
   // The server's own front page.
   await page.goto(`http://127.0.0.1:${MAP_PORT}/`);
