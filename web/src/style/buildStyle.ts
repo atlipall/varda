@@ -1,4 +1,5 @@
 import type { LayerSpecification, StyleSpecification } from 'maplibre-gl';
+import { DEM_MAX_ZOOM, DEM_MIN_ZOOM, TILE_SIZE } from '../dem/dem';
 import type { LineStyle, RgbaImage, Typ } from '../img/typ';
 import { CONTOUR_LINE_TYPES, MAX_ZOOM, MIN_ZOOM } from '../map/zoom';
 import { BACKGROUND, DEFAULT_LINE, DEFAULT_LINE_PRIORITY, LINE_PRIORITY, LINE_STYLES, POLYGON_COLORS, SKIP_POLYGONS } from './fallback';
@@ -25,7 +26,19 @@ function lineLayer(id: string, t: number | null, color: string, width: number, d
   } as LayerSpecification;
 }
 
-export function buildStyle(typ: Typ, opts: { tiles: string; glyphs: string; dem?: string; demBounds?: [number, number, number, number] }): { style: StyleSpecification; images: Map<string, RgbaImage> } {
+export interface StyleOptions {
+  tiles: string;
+  glyphs: string;
+  dem?: string;
+  demBounds?: [number, number, number, number];
+  /** Where the map has data [west, south, east, north], so no tiles are asked for outside it. */
+  bounds?: [number, number, number, number];
+  /** The credit shown with the map (HTML). */
+  attribution?: string;
+  sprite?: string;
+}
+
+export function buildStyle(typ: Typ, opts: StyleOptions): { style: StyleSpecification; images: Map<string, RgbaImage> } {
   const images = new Map<string, RgbaImage>();
   const layers: LayerSpecification[] = [{ id: 'background', type: 'background', paint: { 'background-color': BACKGROUND } }];
 
@@ -100,9 +113,15 @@ export function buildStyle(typ: Typ, opts: { tiles: string; glyphs: string; dem?
       paint: { 'text-color': '#222222', ...HALO } },
   ] as LayerSpecification[]);
 
-  const sources: StyleSpecification['sources'] = { garmin: { type: 'vector', tiles: [opts.tiles], minzoom: MIN_ZOOM, maxzoom: MAX_ZOOM } };
+  const sources: StyleSpecification['sources'] = {
+    garmin: {
+      type: 'vector', tiles: [opts.tiles], minzoom: MIN_ZOOM, maxzoom: MAX_ZOOM,
+      ...(opts.bounds ? { bounds: opts.bounds } : {}),
+      ...(opts.attribution ? { attribution: opts.attribution } : {}),
+    },
+  };
   if (opts.dem) {
-    sources.dem = { type: 'raster-dem', tiles: [opts.dem], tileSize: 256, minzoom: 5, maxzoom: 11, encoding: 'mapbox', ...(opts.demBounds ? { bounds: opts.demBounds } : {}) } as StyleSpecification['sources']['raster-dem'];
+    sources.dem = { type: 'raster-dem', tiles: [opts.dem], tileSize: TILE_SIZE, minzoom: DEM_MIN_ZOOM, maxzoom: DEM_MAX_ZOOM, encoding: 'mapbox', ...(opts.demBounds ? { bounds: opts.demBounds } : {}) } as StyleSpecification['sources']['raster-dem'];
   }
 
   const style: StyleSpecification = {
@@ -110,6 +129,7 @@ export function buildStyle(typ: Typ, opts: { tiles: string; glyphs: string; dem?
     name: 'GPSmap.is (on the fly)',
     sources,
     glyphs: opts.glyphs,
+    ...(opts.sprite ? { sprite: opts.sprite } : {}),
     layers,
   };
   return { style, images };

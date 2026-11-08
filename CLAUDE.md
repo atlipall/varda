@@ -29,6 +29,7 @@ npm run e2e                             # build with VITE_GOOGLE_CLIENT_ID=e2e, 
 node scripts/e2e.mjs                    # the e2e again without rebuilding
 npm run dev                             # http://localhost:5173
 npm run shots                           # retake the guide's screenshots (web/site/images/) after a UI change
+npm run map-server                      # build the map server (web/map-server/dist/); node map-server/check.mjs checks it in Chrome
 npm run icons                           # redraw the app's and Android app's icons from brand/*.svg (the logo's master files)
 ```
 
@@ -70,6 +71,15 @@ npm run icons                           # redraw the app's and Android app's ico
   copy in `.android-signing/` (git-ignored; never lose it, or updates stop installing over the old app).
 
 ## Open work (update this when it changes)
+
+- **`embed` branch (2026-11-08): a map server and widget for web pages**, `web/map-server/`. Not
+  Varda: no Varda name, links or hosting; anyone with .img maps runs it (`node server.mjs --maps
+  <folder>`), and it serves its own `widget.js` (`<div data-img-map=…>`, or `ImgMap.mount()`),
+  MapLibre's workers and the fonts. Owner's choices: tiles built on request by a Node server (not
+  pre-built files), a script + div (not an iframe), hillshading in the first version. Each map
+  also gets a standard `style.json` with a sprite generated from its TYP. Tiles are built in the
+  main thread one at a time, with an in-memory cache. Not merged; nothing deployed (it needs an
+  always-on machine).
 
 - **Switched 2026-10-29: Garmin Map is now Varda at vardamaps.app** (repo `atlipall/varda`). DNS on
   Cloudflare (zone `vardamaps.app`; Pages A/AAAA/www records DNS-only; the wrangler login can't edit

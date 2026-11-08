@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "e2e": "VITE_GOOGLE_CLIENT_ID=e2e npm run build && node scripts/e2e.mjs",
     "shots": "npm run build && node scripts/guide-shots.mjs",
-    "icons": "node scripts/icons.mjs"
+    "icons": "node scripts/icons.mjs",
+    "map-server": "node map-server/build.mjs"
   },
   "keywords": [],
   "author": "",

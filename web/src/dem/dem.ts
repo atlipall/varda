@@ -5,6 +5,9 @@ import type { Overview } from './overview';
 
 export const TILE_SIZE = 256;
 export const OVERVIEW_MAX_ZOOM = 8;
+/** The zooms the map asks for terrain tiles at (MapLibre enlarges zoom 11's beyond it). */
+export const DEM_MIN_ZOOM = 5;
+export const DEM_MAX_ZOOM = 11;
 const ROW_BYTES = HGT_SIZE * 2;
 
 interface Placed {
