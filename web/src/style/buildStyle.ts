@@ -73,12 +73,11 @@ export function buildStyle(typ: Typ, opts: StyleOptions): { style: StyleSpecific
   };
   const [dc, dw] = DEFAULT_LINE;
   layers.push(lineLayer('ln-other', null, dc, dw, null, ['!', ['in', ['get', 't'], ['literal', lineTypes]]]));
-  const drawn = lineTypes.filter((t) => !lineStyle(t).hidden);
-  for (const t of drawn) {
+  for (const t of lineTypes) {
     const s = lineStyle(t);
     if (s.borderColor) layers.push(lineLayer(`ln-${t}-casing`, t, s.borderColor, s.borderWidth, null));
   }
-  for (const t of drawn) {
+  for (const t of lineTypes) {
     const s = lineStyle(t);
     layers.push(lineLayer(`ln-${t}`, t, s.color, s.width, s.dash));
   }

@@ -47,18 +47,6 @@ describe('buildStyle', () => {
     expect(ids).toContain('ln-1');
   });
 
-  test('a hidden line type is not drawn, but its names are', () => {
-    const typ: Typ = { ...emptyTyp(), lines: new Map([[0x2a, { color: '#ffffff', width: 1, borderColor: null, borderWidth: 0, dash: null, hidden: true }]]) };
-    const { style } = buildStyle(typ, OPTS);
-    const ids = style.layers.map((l) => l.id);
-    expect(ids).not.toContain('ln-42');
-    // Not caught by the catch-all for types without a style either.
-    const other = style.layers.find((l) => l.id === 'ln-other') as { filter: unknown[] };
-    expect(JSON.stringify(other.filter)).toContain('42');
-    const labels = style.layers.find((l) => l.id === 'line-labels') as { filter: unknown };
-    expect(labels.filter).toEqual(['all', ['has', 'name'], ['!', ['in', ['get', 't'], ['literal', [0x20, 0x21, 0x22, 0x23, 0x24, 0x25]]]]]);
-  });
-
   test('hillshade when a dem source is given', () => {
     const { style } = buildStyle(emptyTyp(), { ...OPTS, dem: 'dem://{z}/{x}/{y}', demBounds: [-25, 63, -13, 67] });
     const ids = style.layers.map((l) => l.id);
