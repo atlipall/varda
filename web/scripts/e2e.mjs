@@ -1751,6 +1751,36 @@ try {
   if ((await tripTracks()).length !== tripsBefore + 3) fail('trip at startup not kept');
   await page.evaluate(() => localStorage.removeItem('android-app'));
   console.log('trip recording ok');
+
+  // Drag and drop: a folder dropped on Tracks brings in its GPX files (others in it left out); the
+  // panel is outlined while files are over it; a file dropped on the map doesn't open in the browser.
+  const dropDir = `${OUT}drop-folder/`;
+  await rm(dropDir, { recursive: true, force: true });
+  await mkdir(`${dropDir}inner`, { recursive: true });
+  await writeFile(`${dropDir}inner/dropped.gpx`, (await readFile(gpxPath, 'utf8')).replace('Laugavegur start', 'Dropped track'));
+  await writeFile(`${dropDir}notes.txt`, 'not a track');
+  const drag = async (sel, files) => {
+    const b = await page.$eval(sel, (e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    const data = { items: [], files, dragOperationsMask: 1 };
+    await gps.send('Input.dispatchDragEvent', { type: 'dragEnter', ...b, data });
+    await gps.send('Input.dispatchDragEvent', { type: 'dragOver', ...b, data });
+    const outlined = await page.$eval(sel, (e) => e.classList.contains('drop-over'));
+    await gps.send('Input.dispatchDragEvent', { type: 'drop', ...b, data });
+    return outlined;
+  };
+  const dropBefore = (await tripTracks()).length;
+  await page.click('#menu-button');
+  await page.click('#tracks-open');
+  if (!(await drag('#tracks', [dropDir.replace(/\/$/, '')]))) fail('Tracks not outlined while files are dragged over it');
+  await page.waitForFunction((n) => window.__app.tracks.all.length === n + 1, { timeout: 10_000 }, dropBefore).catch(() => fail('a dropped folder did not bring its GPX in'));
+  if (!(await tripTracks()).some((t) => t.name === 'Dropped track')) fail('dropped track not named from its file');
+  if (await page.$eval('#tracks', (e) => e.classList.contains('drop-over') || e.querySelector('#tracks-error').textContent)) fail('Tracks still outlined, or an error, after the drop');
+  await page.click('#tracks-close');
+  const dropUrl = page.url();
+  await drag('#map', [gpxPath]);
+  await new Promise((r) => setTimeout(r, 500));
+  if (page.url() !== dropUrl || (await tripTracks()).length !== dropBefore + 1) fail('a file dropped on the map was opened or imported');
+  console.log('drag and drop ok');
 } finally {
   if (swBuilt) await writeFile(SW, swBuilt);
   await browser?.close();

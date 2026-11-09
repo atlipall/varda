@@ -5,6 +5,7 @@ import { dayText, deletePhoto, getFiles, listPhotos, putFiles, putPhoto, shareNa
 import { withDescription } from '../photos/xmp';
 import { deletions, noteDeleted, setDeletions } from '../saved/deleted';
 import { newId } from '../saved/saved';
+import { acceptDrops, extensions } from '../ui/drop';
 import { readSetting, writeSetting } from '../ui/settings';
 import { diag } from './diagnostics';
 import { PhotoLayer } from './photoLayer';
@@ -109,6 +110,7 @@ export class Photos {
       if (files.length) diag(pickedText(files, this.opened ? Date.now() - this.opened : null));
       if (files.length) void this.add(files);
     };
+    acceptDrops($('photos'), (files) => void this.add(files), extensions('jpg', 'jpeg', 'heic', 'heif'));
     $('photo-note-undo').onclick = () => {
       const u = this.undo;
       this.hideNote();

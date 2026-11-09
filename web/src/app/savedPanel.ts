@@ -5,6 +5,7 @@ import { backupFileName, makeBackup, parseBackup, toStore } from '../saved/backu
 import { deletions, noteDeleted, setDeletions } from '../saved/deleted';
 import { shareFile } from '../gpx/export';
 import { coordsText } from './route';
+import { acceptDrops, extensions } from '../ui/drop';
 import { editName, renameButton } from '../ui/rename';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -96,8 +97,9 @@ export class SavedPanel {
     input.onchange = () => {
       const file = input.files?.[0];
       input.value = '';
-      if (file) void this.restore(file).catch((err) => this.fail(err));
+      if (file) this.restoreFile(file);
     };
+    acceptDrops($('sync-panel'), ([file]) => this.restoreFile(file), extensions('json'));
     void this.reload();
   }
 
@@ -126,6 +128,11 @@ export class SavedPanel {
     this.status('');
     const text = JSON.stringify(makeBackup(this.items, this.tracksNow(), deletions()));
     await shareFile(backupFileName(), text, 'application/json');
+  }
+
+  /** Restores a backup, its failure told under the backup buttons (Saved places' own line isn't on screen). */
+  private restoreFile(file: File): void {
+    void this.restore(file).catch((err) => this.status(`Couldn't restore ${file.name}: ${err instanceof Error ? err.message : String(err)}`));
   }
 
   /** Brings in what a backup has that this device doesn't (or has an older copy of); deletes nothing. */

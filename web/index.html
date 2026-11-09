@@ -44,6 +44,8 @@
          gesture and cancel the touch that drops a pin. */
       #map, #map * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
       .panel { background: #fffffff0; border-radius: 10px; box-shadow: 0 1px 6px #0003; }
+      /* A panel that takes files while they're dragged over it (ui/drop.ts). */
+      .panel.drop-over { outline: 3px dashed var(--accent); outline-offset: -3px; }
       :root { --gap: 8px; --btn: 44px; --top: calc(env(safe-area-inset-top) + var(--gap)); --bottom: calc(env(safe-area-inset-bottom) + var(--gap)); }
       /* Top row: search (stretches) + menu button. */
       #topbar { position: absolute; z-index: 3; top: var(--top); left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--btn) + 2 * var(--gap)); max-width: 420px; }

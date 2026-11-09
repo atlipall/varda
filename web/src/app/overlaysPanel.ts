@@ -3,6 +3,7 @@ import { readOverlayFile, type OverlayFeature } from '../overlays/kml';
 import { addOverlay, deleteOverlay, getOverlayFeatures, listOverlays, putOverlay, type StoredOverlay } from '../overlays/store';
 import { newId } from '../saved/saved';
 import { deleteButton, eyeButton, fitClearOf } from './listButtons';
+import { acceptDrops, extensions } from '../ui/drop';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -37,6 +38,7 @@ export class OverlaysPanel {
       input.value = '';
       void this.importFiles(files);
     };
+    acceptDrops(this.panel, (files) => void this.importFiles(files), extensions('kml', 'kmz'));
     $('overlays-close').onclick = () => this.show(false);
     this.loaded = this.load().catch((err) => this.fail(err));
   }

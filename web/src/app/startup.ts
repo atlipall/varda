@@ -4,12 +4,14 @@ import { androidApp, diag } from './diagnostics';
 import { MapsUi, type Standalone } from './mapsPanel';
 import { showUpdateNotice } from './updateNotice';
 import { browserEnv, UpdateWatcher } from './updates';
+import { ignoreStrayDrops } from '../ui/drop';
 import { startViewer } from './viewer';
 
 const errorText = (what: string, err: unknown) => `${what}: ${err instanceof Error ? err.message : String(err)}`;
 
 export async function startApp(): Promise<void> {
   diag('page loaded');
+  ignoreStrayDrops(); // a file dropped beside a panel would otherwise open in place of the app
   // In the Android app (made for car head units) a big screen gets car-sized controls (index.html):
   // judged by the screen, which the on-screen keyboard doesn't shrink as it does the page.
   const inApp = androidApp() !== null;

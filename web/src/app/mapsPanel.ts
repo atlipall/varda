@@ -2,6 +2,7 @@ import type * as maplibregl from 'maplibre-gl';
 import { contains, coverage, coverageText, elevationFor, filesText, hillshadingText, type MapInfo, type SetInfo } from '../storage/library';
 import { changeChoices, clearStored, downloadMap, importElevation, importFiles, removeSet, requestPersistence, type Library } from '../storage/store';
 import { HGT_STEP } from '../dem/hgt';
+import { acceptDrops, extensions } from '../ui/drop';
 import { editName } from '../ui/rename';
 
 /** The free OpenStreetMap-based map of Iceland, through the download pass-through (web/download-worker). */
@@ -124,6 +125,27 @@ export class MapsUi {
         else if (!this.standalone) this.showPanel(false); // nothing behind the standalone panel
       });
     }
+    acceptDrops(this.panel, (files) => this.dropped(files), extensions('img', 'hgt'));
+  }
+
+  /** Files dropped on the panel: a map (with any elevation files dropped with it as its hillshading),
+   *  or elevation files alone, added to the set shown or stored as a new one. */
+  private dropped(files: File[]): void {
+    const img = extensions('img');
+    const imgs = files.filter((f) => img(f.name));
+    const hgt = files.filter((f) => !img(f.name));
+    if (imgs.length > 1) {
+      if (!this.stillBusy()) this.showError('Drop one map (.img file) at a time.');
+      return;
+    }
+    if (imgs.length) this.storeMap((onProgress) => importFiles(imgs[0], hgt, onProgress));
+    else this.addElevation(hgt, this.view.kind === 'set' ? this.view.id : null);
+  }
+
+  private showError(text: string): void {
+    this.message = text;
+    this.messageIsError = true;
+    this.redraw();
   }
 
   /** Reads the library again and shows it wherever it's open. */
@@ -360,9 +382,7 @@ export class MapsUi {
   private download(): void {
     if (this.stillBusy()) return;
     if (!navigator.onLine) {
-      this.message = 'You are offline. Connect to the internet to download the map.';
-      this.messageIsError = true;
-      this.redraw();
+      this.showError('You are offline. Connect to the internet to download the map.');
       return;
     }
     this.storeMap((onProgress) => downloadMap(FREE_MAP_URL, FREE_MAP_NAME, onProgress));

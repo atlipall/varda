@@ -5,6 +5,7 @@ import { climb, formatStats, summarize } from '../gpx/stats';
 import { deleteTrack, listTracks, putTrack, type StoredTrack } from '../gpx/store';
 import { noteDeleted } from '../saved/deleted';
 import { newId } from '../saved/saved';
+import { acceptDrops, extensions } from '../ui/drop';
 import { editName, renameButton } from '../ui/rename';
 import { deleteButton, eyeButton, fitClearOf } from './listButtons';
 
@@ -58,6 +59,7 @@ export class TracksPanel {
       input.value = '';
       void this.importFiles(files);
     };
+    acceptDrops(this.panel, (files) => void this.importFiles(files), extensions('gpx'));
     $('tracks-close').onclick = () => this.show(false);
     this.loaded = this.reload();
   }
