@@ -16,6 +16,8 @@ export interface LineStyle {
   borderColor: string | null;
   borderWidth: number;
   dash: number[] | null;
+  /** Drawn as nothing: only the names along it show (a bitmap with no pixels set on a clear background). */
+  hidden?: boolean;
 }
 export interface PointStyle {
   image: RgbaImage;
@@ -151,6 +153,8 @@ function polygon(r: Reader): PolygonStyle | null {
 }
 
 const LINE_COLOURS: Record<number, number> = { 0x00: 2, 0x01: 4, 0x03: 3, 0x05: 3, 0x06: 1, 0x07: 2 };
+/** Colour schemes whose second colour is the day background (the others leave it clear). */
+const DAY_BACKGROUND = new Set([0x00, 0x01, 0x03]);
 
 function line(r: Reader): LineStyle | null {
   const f1 = r.u8();
@@ -161,7 +165,13 @@ function line(r: Reader): LineStyle | null {
   if (ncolours === undefined) return null;
   const colours = Array.from({ length: ncolours }, () => r.rgb());
   const day = hex(colours[0]);
-  if (rows) return { color: day, width: rows, borderColor: null, borderWidth: 0, dash: dash(indices(r, 32, rows, 1)) };
+  if (rows) {
+    const pattern = indices(r, 32, rows, 1);
+    if (pattern.some((row) => row.includes(1))) return { color: day, width: rows, borderColor: null, borderWidth: 0, dash: dash(pattern) };
+    // Nothing in the foreground: the line is its background colour, or not drawn when that's clear.
+    const background = DAY_BACKGROUND.has(ctyp) ? hex(colours[1]) : null;
+    return { color: background ?? day, width: rows, borderColor: null, borderWidth: 0, dash: null, ...(background ? {} : { hidden: true }) };
+  }
   let w1: number;
   let w2 = 0;
   if (ctyp === 0x00 || ctyp === 0x01 || ctyp === 0x03) {

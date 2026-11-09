@@ -72,6 +72,17 @@ describe('parseTyp', () => {
     expect([line.color, line.width, line.dash]).toEqual(['#ff0000', 1, [8, 8, 8, 8]]);
   });
 
+  test('a bitmap line with no pixels set and no background is a label without a line', () => {
+    // GPSmap.is styles 0x2a/0x2b (names along hillsides and valleys) like this.
+    const line = parseTyp(makeTyp([], [[0x2a << 5, [(1 << 3) | 0x06, 0x04, 255, 255, 255, 0, 0, 0, 0]]])).lines.get(0x2a)!;
+    expect(line.hidden).toBe(true);
+  });
+
+  test('a bitmap line with no pixels set but a background colour is a solid line in it', () => {
+    const line = parseTyp(makeTyp([], [[0x0a << 5, [(1 << 3) | 0x00, 0x00, 0, 0, 255, 0, 255, 0, 0, 0, 0, 0]]])).lines.get(0x0a)!;
+    expect([line.color, line.dash, line.hidden]).toEqual(['#00ff00', null, undefined]);
+  });
+
   test('point bitmap with subtype', () => {
     const img = parseTyp(makeTyp([[(0x2f << 5) | 6, [0x01, 4, 1, 1, 0x00, 0x00, 0xff, 0x00, 0b1010]]])).points.get(0x2f06)!.image;
     expect([img.width, img.height]).toEqual([4, 1]);
