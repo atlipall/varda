@@ -30,18 +30,18 @@ export interface Gpx {
   waypoints: GpxWaypoint[];
 }
 
-const TOKEN = /<!\[CDATA\[([\s\S]*?)\]\]>|<!--[\s\S]*?-->|<[?!][\s\S]*?>|<(\/?)([\w:.-]+)((?:\s+[\w:.-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>|([^<]+)/g;
+export const TOKEN = /<!\[CDATA\[([\s\S]*?)\]\]>|<!--[\s\S]*?-->|<[?!][\s\S]*?>|<(\/?)([\w:.-]+)((?:\s+[\w:.-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>|([^<]+)/g;
 const ATTR = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const ENTITY = /&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/gi;
 const NAMED: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
-const decode = (s: string) => s.replace(ENTITY, (_, e: string) =>
+export const decode = (s: string) => s.replace(ENTITY, (_, e: string) =>
   e[0] !== '#' ? NAMED[e.toLowerCase()] : String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)));
 
 /** Local name without a namespace prefix, lower-cased. */
-const local = (tag: string) => tag.slice(tag.indexOf(':') + 1).toLowerCase();
+export const local = (tag: string) => tag.slice(tag.indexOf(':') + 1).toLowerCase();
 
-function attrs(s: string): Record<string, string> {
+export function attrs(s: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const m of s.matchAll(ATTR)) out[local(m[1])] = decode(m[2] ?? m[3]);
   return out;

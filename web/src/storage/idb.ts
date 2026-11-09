@@ -1,10 +1,10 @@
 import { storageName } from '../channel';
 
-/** The app's IndexedDB database (GPX tracks, saved pins and routes, photos), kept on this device and
+/** The app's IndexedDB database (GPX tracks, saved pins and routes, photos, overlays), kept on this device and
  *  independent of the loaded map. Every store is created here. */
 const DB = storageName('garmin-map');
-export type StoreName = 'tracks' | 'saved' | 'photos' | 'photoFiles';
-const STORES: StoreName[] = ['tracks', 'saved', 'photos', 'photoFiles'];
+export type StoreName = 'tracks' | 'saved' | 'photos' | 'photoFiles' | 'overlays' | 'overlayData';
+const STORES: StoreName[] = ['tracks', 'saved', 'photos', 'photoFiles', 'overlays', 'overlayData'];
 
 /** Opens the database at `version` (none: as it is), creating the stores it lacks on an upgrade. */
 function openAt(version?: number): Promise<IDBDatabase> {

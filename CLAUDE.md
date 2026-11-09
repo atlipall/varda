@@ -71,7 +71,7 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
-- **`multiple-maps` branch (2026-11-09): several maps, shared hillshading.** Mockup
+- **Shipped 2026-11-09** (merged from `multiple-maps`): several maps, shared hillshading. Mockup
   `mockups/multiple-maps.html`, spec and plan in `docs/superpowers/`. Owner's choices: switch from a
   map button under ⋯ *and* ⋯ → Maps; elevation kept as named sets any map can use (each map takes
   the set covering it unless one, or Off, is chosen); switching keeps the view. OPFS: maps stay in
@@ -81,8 +81,14 @@ npm run icons                           # redraw the app's and Android app's ico
   over; the old map's workers are closed before the new ones open, for the iPhone's memory). The
   old import screen is gone: the Maps panel is also the first screen (`MapsUi` with `Standalone`,
   from `startup.ts`), and "Add a map" opens the file browser and shows the map at once (name from
-  the file, hillshading automatic). On the dev site since 2026-11-09; not merged.
-
+  the file, hillshading automatic). Merged before a phone test; still to check on the iPhone: memory when switching and adding, the
+  upgrade of the stored map, and the first-start panel at car size on the head unit.
+- **Shipped 2026-11-09** (merged from `overlays`): KML overlays (⋯ → Overlays; `web/src/overlays/`,
+  `web/src/app/overlaysPanel.ts`), for GPSmap.is 2026's OVERLAYS folder (drone no-fly zones,
+  Reykjavík parking zones, artworks). Owner's choices: a separate panel (not part of the map
+  import), no tap action, per device (not synced). Merged before a phone test.
+  Not read: GroundOverlay images, models, network links. The paused `map-layers` work (GeoJSON,
+  Shapefile, HMS farms) is at commit 0559e92 if wanted in this panel.
 - **`embed` branch (2026-11-08): a tile server and widget for web pages**, `tile-server/` (its own
   package and node_modules, like `android/`; `npm run build|test|typecheck|check` there; it
   reuses `web/src`, taking that code's packages from its own node_modules via `resolve.mjs`). Not

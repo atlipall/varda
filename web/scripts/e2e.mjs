@@ -1,3 +1,4 @@
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
@@ -368,6 +369,57 @@ try {
   await page.waitForFunction((n) => window.__app.tracks.all[0].name === n, { timeout: 5_000 }, trackName0).catch(() => fail('track renamed back'));
   console.log('track rename ok');
   await page.click('#tracks-close');
+
+  // 3c'. Overlays: GPSmap.is 2026's three KML files and a file that isn't KML; areas under the map's
+  // names, their own colours; the eye hides one; all deleted again so later steps see no overlays.
+  const overlayDir = REPO + 'map-files/GPSmap.is 2026.20 Android/OVERLAYS - Add content to OVERLAY folder/';
+  if (existsSync(overlayDir)) {
+    const kmls = readdirSync(overlayDir).filter((f) => f.endsWith('.kml')).sort().map((f) => overlayDir + f);
+    await page.click('#menu-button');
+    await page.click('#overlays-open');
+    if (await page.evaluate(() => document.activeElement?.id !== 'overlays-title')) fail('the Overlays panel did not take focus');
+    await (await page.$('#overlay-file')).uploadFile(...kmls, gpxPath);
+    await page.waitForFunction((n) => document.querySelectorAll('#overlay-list .overlay').length === n, { timeout: 15_000 }, kmls.length).catch(() => fail('overlays not listed'));
+    const ov = await page.evaluate(() => {
+      const m = window.__app.map;
+      const ids = m.getStyle().layers.map((l) => l.id);
+      const firstBaseSymbol = m.getStyle().layers.find((l) => l.type === 'symbol' && !l.id.startsWith('overlay') && !l.id.startsWith('gpx')).id;
+      return {
+        rows: [...document.querySelectorAll('#overlay-list .overlay')].map((li) => `${li.querySelector('.name').textContent}: ${li.querySelector('.stats').textContent}`),
+        error: document.querySelector('#overlays-error').textContent,
+        features: m.getStyle().sources.overlays.data.features.length,
+        fillUnderNames: ids.indexOf('overlay-fill') < ids.indexOf(firstBaseSymbol),
+        pointsUnderTracks: ids.indexOf('overlay-point') < ids.indexOf('gpx-casing'),
+      };
+    });
+    console.log('overlays:', ov.rows.join('; '));
+    if (!ov.rows.includes('GPSmap.is-Listaverk-2026-02: 195 places') || !ov.rows.includes('GPSmap.is-Droneban-2026-01: 139 areas')) fail(`overlay rows: ${ov.rows}`);
+    if (!/laugavegur-start\.gpx: Pick a KML or KMZ file/.test(ov.error)) fail(`bad overlay error: ${ov.error}`);
+    if (ov.features < 195 + 139 + 23) fail(`overlay features on the map: ${ov.features}`);
+    if (!ov.fillUnderNames || !ov.pointsUnderTracks) fail(`overlay layer order: ${JSON.stringify(ov)}`);
+    await page.click('#overlays-close');
+    await page.evaluate(() => new Promise((r) => { const m = window.__app.map; m.jumpTo({ center: [-21.935, 64.144], zoom: 14.5 }); m.once('idle', r); }));
+    await page.screenshot({ path: `${OUT}overlays-reykjavik.png` });
+    await page.evaluate(() => new Promise((r) => { const m = window.__app.map; m.jumpTo({ center: [-21.2, 64.1], zoom: 8 }); m.once('idle', r); }));
+    await page.screenshot({ path: `${OUT}overlays-drones.png` });
+    await page.click('#menu-button');
+    await page.click('#overlays-open');
+    await page.screenshot({ path: `${OUT}overlays-panel.png` });
+    // The eye hides an overlay's shapes and remembers it.
+    await page.click('#overlay-list .overlay:nth-child(1) .track-eye');
+    await page.waitForFunction((n) => window.__app.map.getStyle().sources.overlays.data.features.length < n, { timeout: 5_000 }, ov.features).catch(() => {});
+    const hidden = await page.evaluate(() => ({ features: window.__app.map.getStyle().sources.overlays.data.features.length, visible: window.__app.overlays.all.map((o) => o.visible) }));
+    if (hidden.features >= ov.features || hidden.visible[0] !== false) fail(`hiding an overlay: ${JSON.stringify(hidden)}`);
+    for (let i = 0; i < kmls.length; i++) {
+      await page.click('#overlay-list .overlay:nth-child(1) .track-delete');
+      await page.click('#overlay-list .overlay:nth-child(1) .track-delete');
+      await page.waitForFunction((n) => document.querySelectorAll('#overlay-list .overlay').length === n, { timeout: 5_000 }, kmls.length - i - 1).catch(() => fail('overlay not deleted'));
+    }
+    const left = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('garmin-map'); r.onsuccess = () => { const tx = r.result.transaction(['overlays', 'overlayData']); const a = tx.objectStore('overlays').count(); const b = tx.objectStore('overlayData').count(); tx.oncomplete = () => res(a.result + b.result); }; }));
+    if (left !== 0 || (await page.$eval('#overlays-empty', (e) => e.hidden))) fail(`after deleting overlays: ${left} stored`);
+    await page.click('#overlays-close');
+    console.log('overlays ok');
+  } else console.log('overlays skipped: no GPSmap.is 2026 folder');
 
   // 3d. Routing: right-click drops a pin, a tap closes it; Ctrl+Click keeps it; Route here → panel
   // numbers; the switch; an off-road destination; a start chosen on the map; ×
