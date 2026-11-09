@@ -1470,12 +1470,17 @@ try {
     await page.waitForSelector('#maps-panel[hidden]', { timeout: 60_000 }).catch(async () => fail(`Apply did not close the panel: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
   };
 
-  // 7. A second map from Add… (the file browser): kept beside the first, named after its file and
-  //    ticked; the panel stays open and the map shown stays until Apply.
+  // 7. A second map from Add… (the file browser), picked together with a broken .img: the broken
+  //    one is named and skipped, the other kept beside the first, named after its file and ticked;
+  //    the panel stays open and the map shown stays until Apply.
+  const BAD_IMG = `${OUT}Broken map.img`;
+  await writeFile(BAD_IMG, Buffer.alloc(4096, 7));
   const t1 = Date.now();
-  await (await page.$('#maps-add-input')).uploadFile(IMG2);
+  await (await page.$('#maps-add-input')).uploadFile(BAD_IMG, IMG2);
   await page.waitForFunction(() => /Added “/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 })
     .catch(async () => fail(`adding a map: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
+  const addedText = await page.$eval('#maps-panel .status', (e) => e.textContent);
+  if (!/“Broken map\.img” couldn’t be added/.test(addedText) || (await page.$('#maps-panel .status.error'))) fail(`adding two maps, one broken: ${addedText}`);
   console.log(`adding a map took ${((Date.now() - t1) / 1000).toFixed(1)} s`);
   if (await page.$('#maps-panel[hidden]')) fail('the Maps panel closed after adding a map');
   const mapRows = await page.$$eval('#maps-panel .map-row', (rs) => rs.map((r) => ({ text: r.textContent, on: r.querySelector('.row').getAttribute('aria-checked') === 'true' })));

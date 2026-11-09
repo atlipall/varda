@@ -9,6 +9,9 @@ import { editName } from '../ui/rename';
 const FREE_MAP_URL = 'https://download.vardamaps.app/iceland.zip';
 const FREE_MAP_NAME = 'Freizeitkarte Iceland (OpenStreetMap).img';
 
+/** Copies one map into storage, with elevation files `hgt` as a new set; resolves to its id. */
+type StoreMap = (hgt: File[], onProgress: (m: string) => void, opts: ImportChoices) => Promise<string>;
+
 /** What the maps UI needs from the viewer (or, with no map open, from the start-up screen). */
 export interface MapsHost {
   /** What's stored, read again. */
@@ -136,8 +139,9 @@ export class MapsUi {
     acceptDrops(this.panel, (files) => this.take(files), extensions('img', 'hgt'));
   }
 
-  /** Files picked with Add… or dropped on the panel: a map (with any elevation files given with it
-   *  as its hillshading), or elevation files alone, added to the set shown or stored as a new one. */
+  /** Files picked with Add… or dropped on the panel: maps (any elevation files given with them
+   *  stored once, with the first, as a set the others also take where it covers them), or
+   *  elevation files alone, added to the set shown or stored as a new one. */
   private take(files: File[]): void {
     const img = extensions('img');
     const hgt = extensions('hgt');
@@ -145,8 +149,9 @@ export class MapsUi {
     if (files.some((f) => !img(f.name) && !hgt(f.name))) return this.showError('Choose a map (.img file) or elevation files (.hgt).');
     const imgs = files.filter((f) => img(f.name));
     const hgts = files.filter((f) => hgt(f.name));
-    if (imgs.length > 1) return this.showError('Add one map (.img file) at a time.');
-    if (imgs.length) this.storeMap((onProgress, opts) => importFiles(imgs[0], hgts, onProgress, opts));
+    if (imgs.length) {
+      this.storeMaps(imgs.map((f) => ({ name: f.name, store: (hgt, onProgress, opts) => importFiles(f, hgt, onProgress, opts) })), hgts);
+    }
     else this.addElevation(hgts, this.view.kind === 'set' ? this.view.id : null);
   }
 
@@ -345,7 +350,7 @@ export class MapsUi {
       } else out.push(h('p', { class: 'note', text: 'Elevation files (.hgt) draw the hills’ shading and give heights along tracks.' }));
     }
     out.push(this.filesButton('+ Add…', 'maps-add', (files) => this.take(files), first ? 'big' : 'add'));
-    out.push(h('p', { class: 'note', text: 'Maps (.img) and elevation files (.hgt), from this device or iCloud Drive.' }));
+    out.push(h('p', { class: 'note', text: 'Maps (.img) and elevation files (.hgt), one or several at a time, from this device or iCloud Drive.' }));
     if (!lib.maps.some((m) => m.imgName === FREE_MAP_NAME)) {
       const download = h('button', { type: 'button', class: 'add', id: 'maps-download', text: 'Download the free map of Iceland' });
       download.onclick = () => this.download();
@@ -412,16 +417,33 @@ export class MapsUi {
     return h('div', {}, remove, this.status());
   }
 
-  /** Stores a map (`store` resolves to its id) beside the one shown, which stays, and ticks it. */
-  private storeMap(store: (onProgress: (m: string) => void, opts: ImportChoices) => Promise<string>): void {
-    let id = '';
+  /** Adds maps one after another (never side by side: the iPhone's memory) in one `host.add`, so
+   *  the map shown is closed and opened again once. One that fails is named and the rest still
+   *  added; elevation files `hgt` go with the first one added. The last one added is ticked. */
+  private storeMaps(jobs: { name: string; store: StoreMap }[], hgt: File[] = []): void {
+    const ids: string[] = [];
+    const failed: string[] = [];
     void this.act(async () => {
       await requestPersistence().catch(() => false); // best effort: never block an import on it
-      await this.host.add(async () => (id = await store((m) => this.progress(m), { current: false })));
+      await this.host.add(async () => {
+        for (const [i, job] of jobs.entries()) {
+          const step = jobs.length > 1 ? `Map ${i + 1} of ${jobs.length} · ` : '';
+          try {
+            ids.push(await job.store(ids.length ? [] : hgt, (m) => this.progress(step + m), { current: false }));
+          } catch (err) {
+            if (jobs.length === 1) throw err;
+            failed.push(`“${job.name}” couldn’t be added: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        if (!ids.length) throw new Error(failed.join(' '));
+        return ids[ids.length - 1];
+      });
       this.view = { kind: 'list' };
     }, (lib) => {
+      const id = ids[ids.length - 1];
       this.pick = { map: id, set: this.effectiveId(id) };
-      return `Added “${lib.maps.find((m) => m.id === id)?.name ?? 'the map'}”.`;
+      const added = ids.length === 1 ? `Added “${lib.maps.find((m) => m.id === id)?.name ?? 'the map'}”.` : `Added ${ids.length} maps.`;
+      return [added, ...failed].join(' ');
     });
   }
 
@@ -431,7 +453,7 @@ export class MapsUi {
       this.showError('You are offline. Connect to the internet to download the map.');
       return;
     }
-    this.storeMap((onProgress, opts) => downloadMap(FREE_MAP_URL, FREE_MAP_NAME, onProgress, opts));
+    this.storeMaps([{ name: FREE_MAP_NAME, store: (_hgt, onProgress, opts) => downloadMap(FREE_MAP_URL, FREE_MAP_NAME, onProgress, opts) }]);
   }
 
   private go(view: View): void {
