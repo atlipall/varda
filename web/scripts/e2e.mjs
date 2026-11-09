@@ -9,7 +9,7 @@ import { tiff } from '../test/helpers/photoBytes.ts';
 
 const WEB = fileURLToPath(new URL('..', import.meta.url));
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
-const DATA = REPO + 'GPSmap.is 2024.21 Android/';
+const DATA = REPO + 'map-files/GPSmap.is 2024.21 Android/';
 const IMG = DATA + 'MAPS - Add content to MAPFILES folder/Iceland GPSmap.is 2024.21 Detailed.img';
 const HGT_DIR = DATA + 'HILLSHADE - Add content to DEM folder/';
 const OUT = WEB + 'e2e-output/';

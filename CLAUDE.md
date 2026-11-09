@@ -34,7 +34,7 @@ npm run icons                           # redraw the app's and Android app's ico
 
 - **`npm install` is blocked** unless logged in to npm (`npm login`): no new dependencies without asking.
   Prefer writing small code over adding packages (zip, Shapefile and projections were written by hand).
-- The e2e drives the real map from `GPSmap.is 2024.21 Android/` (never committed), fakes GPS with
+- The e2e drives the real map from `map-files/GPSmap.is 2024.21 Android/` (never committed), fakes GPS with
   `Emulation.setGeolocationOverride`, and fakes Google Drive, the sign-in helper and HMS with request
   interception. A failed click reports its line and which parent was hidden. Screenshots go to
   `web/e2e-output/`; look at them, they catch what assertions miss.

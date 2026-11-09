@@ -23,7 +23,7 @@ npm run typecheck
 npm run e2e        # headless-Chrome run on the real map: import, search, location, GPX, offline
 ```
 
-Tests that need real data look for the GPSmap.is package in `GPSmap.is 2024.21 Android/` at the repo root
+Tests that need real data look for the GPSmap.is package in `map-files/GPSmap.is 2024.21 Android/` at the repo root
 (never committed). `npm run build` writes the site to `web/dist/`: the instructions page from `web/site/` at the
 root and the app under `app/`.
 
