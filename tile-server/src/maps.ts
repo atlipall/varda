@@ -1,7 +1,8 @@
 import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 import { Dem } from '../../web/src/dem/dem';
-import { decodeHgt, HGT_BYTES, parseHgtName } from '../../web/src/dem/hgt';
+import { DEM_MAX_ZOOM } from '../../web/src/map/zoom';
+import { demMaxZoomFor, HGT_SIZE_ERROR, hgtStep, onePerSquare, parseHgtName } from '../../web/src/dem/hgt';
 import { OverviewBuilder } from '../../web/src/dem/overview';
 import type { ByteSource } from '../../web/src/img/source';
 import { emptyTyp, parseTyp, type Typ } from '../../web/src/img/typ';
@@ -43,20 +44,21 @@ const versionOf = (files: FoundFile[]) =>
 class Terrain {
   /** Sorted by name in code-point order, as the app applies them on import: shared tile edges are
    *  "last write wins", so the order decides which file's edge is used. */
-  private readonly files: Array<{ path: string; name: string; south: number; west: number }>;
+  private readonly files: Array<{ path: string; name: string; south: number; west: number; step: number }>;
   private readonly area: Bounds;
   readonly version: string;
+  /** The last zoom of terrain tiles. */
+  readonly maxZoom: number;
   private dem: Promise<Dem> | null = null;
   private failed = false;
 
   constructor(found: FoundFile[]) {
-    this.files = found
-      .map(({ path }) => ({ path, name: basename(path).toLowerCase(), ...parseHgtName(basename(path))! }))
-      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    this.files = onePerSquare(found.map(({ path, size }) => ({ path, name: basename(path).toLowerCase(), ...parseHgtName(basename(path))!, step: hgtStep(size)! })));
     const souths = this.files.map((f) => f.south);
     const wests = this.files.map((f) => f.west);
     this.area = [Math.min(...wests), Math.min(...souths), Math.max(...wests) + 1, Math.max(...souths) + 1];
     this.version = versionOf(found);
+    this.maxZoom = demMaxZoomFor(this.files);
   }
 
   /** Where the terrain is (known from the file names alone), or null once it turned out unreadable,
@@ -69,6 +71,7 @@ class Terrain {
     return this.files.length;
   }
 
+
   /** Built once (the server starts it in the background). A failure is kept, not retried: reading
    *  every .hgt again on each request wouldn't fix a bad file. */
   get(): Promise<Dem> {
@@ -76,7 +79,7 @@ class Terrain {
       this.dem = (async () => {
         // Zoomed out, terrain comes from a coarse copy of the whole area (as the app builds on import).
         const builder = new OverviewBuilder(this.files);
-        for (const f of this.files) builder.add(f.south, f.west, decodeHgt(new Uint8Array(await readFile(f.path))));
+        for (const f of this.files) builder.add(f.south, f.west, new Uint8Array(await readFile(f.path)), f.step);
         const sources: Array<{ name: string; src: Awaited<ReturnType<typeof fileSource>> }> = [];
         try {
           for (const f of this.files) sources.push({ name: f.name, src: await fileSource(f.path) });
@@ -153,6 +156,10 @@ export class ServedMap {
   /** Where the terrain is [west, south, east, north], or null without (readable) terrain. */
   get terrainBounds(): Bounds | null {
     return this.terrain?.bounds ?? null;
+  }
+
+  get terrainMaxZoom(): number {
+    return this.terrain?.maxZoom ?? DEM_MAX_ZOOM;
   }
 
   /** Changes when the .hgt files do (the map's own version follows its .img). */
@@ -232,7 +239,7 @@ export async function findMaps(root: string, log: (msg: string) => void = consol
     const hgt: FoundFile[] = [];
     for (const f of files.filter((f) => /\.hgt$/i.test(f.path))) {
       if (!parseHgtName(basename(f.path))) log(`  skipped ${relative(root, f.path)}: not named like n64w019.hgt`);
-      else if (f.size !== HGT_BYTES) log(`  skipped ${relative(root, f.path)}: not a 1201×1201 SRTM3 file`);
+      else if (!hgtStep(f.size)) log(`  skipped ${relative(root, f.path)}: ${HGT_SIZE_ERROR}`);
       else hgt.push(f);
     }
     const terrain = hgt.length ? new Terrain(hgt) : null;

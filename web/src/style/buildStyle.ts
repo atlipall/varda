@@ -30,6 +30,8 @@ export interface StyleOptions {
   glyphs: string;
   dem?: string;
   demBounds?: [number, number, number, number];
+  /** The last zoom of terrain tiles (DEM_MAX_ZOOM unless the elevation files are 1″). */
+  demMaxZoom?: number;
   /** Where the map has data [west, south, east, north], so no tiles are asked for outside it. */
   bounds?: [number, number, number, number];
   /** The credit shown with the map (HTML). */
@@ -121,7 +123,7 @@ export function buildStyle(typ: Typ, opts: StyleOptions): { style: StyleSpecific
     },
   };
   if (opts.dem) {
-    sources.dem = { type: 'raster-dem', tiles: [opts.dem], tileSize: DEM_TILE_SIZE, minzoom: DEM_MIN_ZOOM, maxzoom: DEM_MAX_ZOOM, encoding: 'mapbox', ...(opts.demBounds ? { bounds: opts.demBounds } : {}) } as StyleSpecification['sources']['raster-dem'];
+    sources.dem = { type: 'raster-dem', tiles: [opts.dem], tileSize: DEM_TILE_SIZE, minzoom: DEM_MIN_ZOOM, maxzoom: opts.demMaxZoom ?? DEM_MAX_ZOOM, encoding: 'mapbox', ...(opts.demBounds ? { bounds: opts.demBounds } : {}) } as StyleSpecification['sources']['raster-dem'];
   }
 
   const style: StyleSpecification = {

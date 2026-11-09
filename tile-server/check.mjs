@@ -22,7 +22,7 @@ const fail = (msg) => {
 
 await mkdir(OUT, { recursive: true });
 const maps = await mkdtemp(join(tmpdir(), 'tile-server-'));
-await symlink(REPO + 'GPSmap.is 2024.21 Android', join(maps, 'gpsmap'));
+await symlink(REPO + 'map-files/GPSmap.is 2024.21 Android', join(maps, 'gpsmap'));
 
 let site;
 let browser;

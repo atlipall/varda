@@ -11,4 +11,4 @@ node_modules/
 # The tile server's build and its browser check's screenshots.
 tile-server/dist/
 tile-server/check-output/
-/GPSmap.is 2024.21 Android/
+/map-files/
