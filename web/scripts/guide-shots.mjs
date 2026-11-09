@@ -153,7 +153,7 @@ try {
   await shot('sync');
   await tap('#sync-close');
 
-  // More than one map: a second one added from ⋯ → Maps (it opens in place), then the map button's
+  // More than one map: a second one added from ⋯ → Maps and shown from its row, then the map button's
   // picker over Landmannalaugar, and the Maps panel; without the track and route of the shots
   // before, which would only distract here.
   await page.evaluate(async () => {
@@ -165,7 +165,10 @@ try {
   await tap('#maps-open');
   await page.waitForSelector('#maps-panel:not([hidden]) #maps-add');
   await (await page.$('#maps-add-input')).uploadFile(IMG2);
-  await page.waitForSelector('#map-note:not([hidden])', { timeout: 600_000 });
+  await page.waitForFunction(() => /Map added/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 });
+  // Added to the list only: shown from its row's circle.
+  await page.evaluate(() => [...document.querySelectorAll('#maps-panel .map-row')].find((r) => r.textContent.includes('Focused')).querySelector('.pick').click());
+  await page.waitForSelector('#map-note:not([hidden])', { timeout: 60_000 });
   await page.waitForFunction(() => document.querySelector('#map-note').hidden, { timeout: 15_000 }); // the note goes after 8 s
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
   await view([-19.06, 63.985], 11.5);
