@@ -45,11 +45,13 @@ try {
 
   // Loading a map.
   await page.goto(`${origin}/`);
-  await page.waitForSelector('#import:not([hidden])');
+  // The first screen is the Maps panel: elevation files first (they stay), then the map (it opens).
+  await page.waitForSelector('#maps-panel.standalone:not([hidden]) #maps-add');
   await shot('import');
-  await (await page.$('#img-file')).uploadFile(IMG);
-  await (await page.$('#hgt-files')).uploadFile(...hgts);
-  await Promise.all([page.waitForNavigation({ timeout: 600_000 }), page.click('#import-button')]);
+  await (await page.$('#maps-add-elevation-input')).uploadFile(...hgts);
+  await page.waitForSelector('#maps-panel .set-row', { timeout: 600_000 });
+  await (await page.$('#maps-add-input')).uploadFile(IMG);
+  await page.waitForNavigation({ timeout: 600_000 });
   await page.waitForFunction(() => window.__app?.ready === true && window.__app?.placesReady === true, { timeout: 600_000 });
 
   // The map, with hillshading: Landmannalaugar.

@@ -242,7 +242,7 @@
         #pe-note { flex: none; padding: 12px 20px 20px; border-radius: 0 0 16px 16px; }
       }
       /* "A new version is ready": under the top row, below its search results, the menu and panels; hidden while navigating
-         (see updateNotice.ts) and under the import screen, where a reload would lose an import. */
+         (see updateNotice.ts) and under the Maps panel, where a reload would lose a map being added. */
       #update { position: absolute; z-index: 2; top: calc(var(--top) + var(--btn) + var(--gap)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; max-width: calc(100% - 2 * var(--gap)); box-sizing: border-box; padding: 4px 4px 4px 14px; font-size: calc(14 * var(--px)); white-space: nowrap; }
       #update[hidden], body.navigating #update { display: none; }
       #update span { overflow: hidden; text-overflow: ellipsis; }
@@ -278,6 +278,10 @@
       /* Several maps (⋯ → Maps, and the map button's picker): rows with a radio or a tick, details
          one step in, the elevation sets below the maps. */
       #map .maps-button { display: grid; place-items: center; color: var(--ink); border-radius: inherit; }
+      /* With no map open (the first start), the Maps panel is the screen: at the top, centred side to
+         side, scrolling within itself. */
+      #maps-panel.standalone { top: calc(env(safe-area-inset-top) + 16px); max-height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 32px); padding: 12px 16px 16px; }
+      .maps-ui .intro { margin: 4px 0 10px; font-size: calc(15 * var(--px)); color: var(--ink); }
       .maps-ui h3 { margin: 14px 0 2px; font-size: calc(12 * var(--px)); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #667; }
       .maps-ui .row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 0; border: 0; border-top: 1px solid #0001; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
       .maps-ui .row:first-of-type { border-top: 0; }
@@ -309,13 +313,6 @@
       .maps-ui .bar i { display: block; height: 100%; }
       .maps-ui .cover { display: block; width: 100%; height: auto; margin: 10px 0 2px; border-radius: 8px; background: #dce8f3; }
       .maps-ui .rename-form { margin: 8px 0; }
-      #import-name { width: 100%; box-sizing: border-box; min-height: 44px; padding: 8px 10px; border: 1px solid #c4c8ce; border-radius: 8px; font-size: max(16px, calc(16 * var(--px))); }
-      #import-elevation-options .row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 6px 0; border: 0; border-top: 1px solid #0001; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-      #import-elevation-options .row:first-child { border-top: 0; }
-      #import-elevation-options .n { display: block; font-size: calc(16 * var(--px)); }
-      #import-elevation-options .s { display: block; font-size: calc(13.5 * var(--px)); color: #5d6673; }
-      #import-elevation-options .radio { flex: none; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 2px solid #b9bfc8; }
-      #import-elevation-options [aria-checked="true"] > .radio { border: 7px solid var(--accent); }
       .tracks-head h2 { margin: 0; font-size: calc(18 * var(--px)); }
       /* Settings (⋯ → Settings): groups of rows, each group under a small heading. */
       #settings h3 { margin: 14px 0 2px; font-size: calc(12 * var(--px)); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #667; }
@@ -509,7 +506,7 @@
          from the screen's size (startup.ts), not the window's, so the keyboard shrinking the page
          doesn't shrink the controls. */
       body.car-size {
-        & :is(#topbar, #menu-button, #menu, #badge, #update, #tracks, #saved, #photos, #sync-panel, #diag-panel, #settings, #map-picker, #maps-panel, #trip-pill, #import .card),
+        & :is(#topbar, #menu-button, #menu, #badge, #update, #tracks, #saved, #photos, #sync-panel, #diag-panel, #settings, #map-picker, #maps-panel, #trip-pill),
         & #map :is(.maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left, .place-menu .maplibregl-popup-content) { zoom: 1.5; }
         /* The cards beside the map less so (at 1.5 the route and guidance cards took half the screen),
            and the notes that show in their place at the same size, so neither covers the other. */
@@ -522,32 +519,8 @@
         #map .maplibregl-ctrl-group button { width: var(--btn); height: var(--btn); }
         #map .maplibregl-ctrl-group button .maplibregl-ctrl-icon { background-size: 30px; }
       }
-      /* Full-screen scroller; the card centres with margin:auto so a card taller than the visible
-         area overflows downward (still scrollable) instead of being clipped at the top. */
-      #import { position: fixed; inset: 0; z-index: 5; display: flex; box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: var(--paper);
-                padding: calc(env(safe-area-inset-top) + 16px) calc(env(safe-area-inset-right) + 16px) calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 16px); }
-      #import .card { margin: auto; width: 100%; max-width: 440px; box-sizing: border-box; padding: 20px; }
-      #import h2 { margin: 0 0 8px; }
-      #import p { margin: 0 0 8px; }
-      #import .field-label { margin: 14px 0 6px; font-weight: 600; }
       /* A file picker as a button and the chosen file's name; the input itself is hidden but still
          takes keyboard focus (its ring goes on the button). */
-      .file-pick { display: flex; align-items: center; gap: 12px; min-width: 0; }
-      .file-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-      .file-button { flex: none; min-height: 44px; padding: 0 14px; display: inline-flex; align-items: center; box-sizing: border-box; border: 1.5px solid #d4d9e1; border-radius: 10px; background: #fff; color: var(--ink); font-size: calc(15 * var(--px)); font-weight: 600; cursor: pointer; }
-      .file-input:focus-visible + .file-button { outline: 2px solid var(--accent); outline-offset: 2px; }
-      .file-name { min-width: 0; font-size: calc(14 * var(--px)); color: #556; overflow-wrap: anywhere; }
-      #import .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
-      #import button { min-height: 44px; padding: 0 16px; font-size: calc(16 * var(--px)); border: 0; border-radius: 8px; background: var(--accent); color: white; }
-      #import button:disabled { opacity: 0.6; }
-      #import button.secondary { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-      #import button.danger { background: transparent; color: #b00020; padding-left: 0; padding-right: 0; }
-      #home-hint { font-size: calc(13 * var(--px)); color: #556; }
-      #free-map { margin-top: 22px; padding-top: 16px; border-top: 1px solid #0002; }
-      #free-map h3 { margin: 0 0 6px; font-size: calc(17 * var(--px)); }
-      #import-error { color: #b00020; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 12px; }
-      #import-progress { margin-top: 12px; }
-      @media (max-width: 400px), (max-height: 500px) { #import { padding-left: calc(env(safe-area-inset-left) + 8px); padding-right: calc(env(safe-area-inset-right) + 8px); } #import .card { padding: 16px; } #import .field-label { margin-top: 10px; } }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -772,28 +745,6 @@
         <button id="route-start" type="button" hidden><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 19-8-4.5L4 21z" fill="currentColor"/></svg>Start</button>
         <div id="route-actions"><button id="route-go" type="button">Route here</button><button id="route-save" type="button"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Save</span></button><button id="route-export" type="button"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v7h14v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Export GPX</span></button></div>
         <form id="route-save-form" hidden><input id="route-save-name" type="text" maxlength="80" aria-label="Name" autocomplete="off" /><button type="submit" class="primary">Save</button><button id="route-save-cancel" type="button">Cancel</button></form>
-      </div>
-    </section>
-    <section id="import" hidden>
-      <div class="card panel">
-        <h2 id="import-title">Load your map</h2>
-        <p id="import-intro">Pick the Garmin <code>.img</code> map file. Add the <code>.hgt</code> elevation files for hillshading (optional). They are stored on this device only.</p>
-        <div class="field-label" id="img-label">Map (.img)</div>
-        <div class="file-pick"><input id="img-file" class="file-input" type="file" aria-labelledby="img-label" /><label for="img-file" class="file-button">Choose file…</label><span class="file-name" id="img-file-name">No file chosen</span></div>
-        <div id="import-name-row" hidden><label class="field-label" for="import-name">Name</label><input id="import-name" type="text" maxlength="80" autocomplete="off" /></div>
-        <div id="import-elevation" hidden><div class="field-label">Hillshading</div><div id="import-elevation-options" role="radiogroup" aria-label="Hillshading"></div></div>
-        <div id="hgt-row"><div class="field-label" id="hgt-label">Elevation (.hgt, select all)</div>
-        <div class="file-pick"><input id="hgt-files" class="file-input" type="file" multiple aria-labelledby="hgt-label" /><label for="hgt-files" class="file-button">Choose files…</label><span class="file-name" id="hgt-files-name">No files chosen</span></div></div>
-        <div class="actions"><button id="import-button">Import</button><button id="import-cancel" class="secondary" hidden>Cancel</button></div>
-        <div id="free-map">
-          <h3>No Garmin map?</h3>
-          <p>Download a free map of Iceland made from OpenStreetMap: roads, trails, places and contour lines, with routing (Freizeitkarte, 255 MB). Keep the app open while it downloads.</p>
-          <div class="actions"><button id="download-free" class="secondary">Download free map</button></div>
-        </div>
-        <div id="import-progress"></div>
-        <div id="import-error"></div>
-        <p id="home-hint" hidden>Tip: add this app to your Home Screen first (Share → Add to Home Screen) so your map stays stored.</p>
-        <div class="actions"><button id="remove-stored" class="danger" hidden>Remove stored maps</button></div>
       </div>
     </section>
     <script type="module" src="/src/main.ts"></script>

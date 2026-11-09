@@ -32,7 +32,6 @@ import { Navigator } from './navigation';
 import { loadSession, saveSession } from './session';
 import { TracksPanel } from './tracks';
 import type { TilePool } from '../worker/pool';
-import { showImport } from './importScreen';
 import { carryOver, openSource, parseTileUrl, type MapSource } from './mapSource';
 import { MapsUi } from './mapsPanel';
 
@@ -157,7 +156,8 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     },
     switchTo: (id) => switchTo(id, true),
     refresh: (without) => refresh(without),
-    addMap: () => addMap(),
+    // A map being added: shown here once stored, the panel put away so the map and its note are seen.
+    add: (store) => addMap(store).then(() => maps.showPanel(false)),
     removeMap: (id) => removeOne(id),
     changed: (l) => showLabels(l),
   });
@@ -309,22 +309,9 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   map.on('movestart', (e) => {
     if ((e as { originalEvent?: Event }).originalEvent) setMenu(false);
   });
+  /** Set when the page is going (the last map removed, or a map that can't be shown): nothing more
+   *  is drawn or remembered. */
   let closed = false;
-  /** Adding a map: the import screen. Stop the workers and the map to free memory for the import
-   *  (Cancel reloads straight back into the map shown). */
-  const addMap = () => {
-    void loadLibrary().catch(() => null).then((l) => {
-      saveNow();
-      closed = true;
-      dialogs.closeAll();
-      setMenu(false);
-      $('settings').hidden = true;
-      pool.dispose();
-      map.remove();
-      for (const id of ['topbar', 'menu-button', 'badge', 'perf', 'map-note']) $(id).hidden = true;
-      showImport('', { add: true, canCancel: true, lib: l });
-    });
-  };
   // ⋯ → Maps, and Settings' map row: the maps panel.
   $('maps-open').onclick = () => {
     setMenu(false);
@@ -413,7 +400,30 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   const switchTo = (id: string, note: boolean): Promise<void> => queued(async () => {
     if (id === src.stored.id) return;
     const { lib: l, from } = await show(id);
-    if (!note) return;
+    if (note) noteSwitch(l, id, from);
+  });
+  /** Adds a map and shows it. The workers of the map shown are closed for the copy (a phone's
+   *  memory: the importer reads the new map too; tiles drawn stay); a failed one brings them back. */
+  const addMap = (store: () => Promise<string>): Promise<void> => queued(async () => {
+    const before = src;
+    gen += 1;
+    before.pool.dispose();
+    let id: string;
+    try {
+      id = await store();
+    } catch (err) {
+      await show(before.stored.id).catch((e) => console.error('reopening the map', e));
+      throw err;
+    }
+    // Stored, and current: if it won't open, the map shown before stays current too.
+    const { lib: l } = await show(id).catch(async (err) => {
+      await setCurrent(before.stored.id).catch(() => {});
+      throw err;
+    });
+    noteSwitch(l, id, before.stored.id);
+  });
+  /** Says which map is shown now, with Undo back to `from`, for 8 s. */
+  const noteSwitch = (l: Library, id: string, from: string) => {
     const small = document.createElement('small');
     small.textContent = hillshadingText(src.stored.set);
     $('map-note-text').replaceChildren(l.maps.find((m) => m.id === id)?.name ?? '', small);
@@ -424,7 +434,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
       hideNote();
       void switchTo(from, false).then(() => maps.reload()).catch((err) => console.error('undo map switch', err));
     };
-  });
+  };
   /** Draws the map shown again when the elevation it should use isn't the one it has (a choice,
    *  a set added, changed or about to be removed: `without`). */
   const refresh = (without?: string): Promise<void> => queued(async () => {

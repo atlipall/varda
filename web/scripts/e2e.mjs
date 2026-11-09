@@ -74,11 +74,18 @@ try {
     req.onsuccess = () => { req.result.close(); resolve(); };
     req.onerror = () => reject(req.error);
   }));
-  await page.waitForSelector('#import:not([hidden])', { timeout: 30_000 });
-  await (await page.$('#img-file')).uploadFile(IMG);
-  await (await page.$('#hgt-files')).uploadFile(...hgts);
+  // The first screen is the Maps panel on its own: the elevation files first (they stay in the
+  // panel), then the map, which opens.
+  await page.waitForSelector('#maps-panel.standalone:not([hidden]) #maps-add', { timeout: 30_000 });
+  if (await page.$('#maps-panel .close')) fail('the first screen can be closed');
+  if (await page.$('#remove-stored')) fail('"Remove stored data" offered with nothing stored');
+  await page.screenshot({ path: `${OUT}first-start.png` });
   const t0 = Date.now();
-  await Promise.all([page.waitForNavigation({ timeout: 600_000 }), page.click('#import-button')]);
+  await (await page.$('#maps-add-elevation-input')).uploadFile(...hgts);
+  await page.waitForFunction(() => /used by|not used/.test(document.querySelector('#maps-panel .set-row')?.textContent ?? ''), { timeout: 600_000 })
+    .catch(async () => fail(`elevation files not stored: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
+  await (await page.$('#maps-add-input')).uploadFile(IMG);
+  await page.waitForNavigation({ timeout: 600_000 });
   console.log(`import took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   await waitReady();
 
@@ -1349,7 +1356,7 @@ try {
   console.log('drive sync ok');
   if (await page.$eval('#saved', (e) => !e.hidden)) await page.click('#saved-close');
   console.log('saved list ok');
-  if (await page.$('#import:not([hidden])')) fail('import screen shown after reload');
+  if (await page.$('#maps-panel.standalone')) fail('the first screen shown after reload');
   await page.waitForFunction((n) => window.__app?.tracks?.count === n, { timeout: 10_000 }, tracksBefore).catch(() => fail('tracks not kept across reload'));
   // Deleting asks for a second tap.
   await page.click('#menu-button');
@@ -1367,8 +1374,7 @@ try {
   await waitReady();
   console.log('offline reload ok');
 
-  // 6. Several maps. The first import kept the map and made its .hgt files an elevation set.
-  //    Adding a map must not change storage until it's done; Cancel goes back to the map shown.
+  // 6. Several maps. The first start kept the elevation files as a set and the map beside it.
   await page.setOfflineMode(false);
   const opfs = () => page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
@@ -1379,49 +1385,37 @@ try {
   });
   const mapDirs = (o) => o.names.filter((n) => n === 'garmin/' || n.startsWith('garmin-'));
   const setDirs = (o) => o.names.filter((n) => n.startsWith('elevation-'));
+  /** The generation in the map's tile address (one more for each map or hillshading shown). */
+  const tileGen = () => page.evaluate(() => Number(/\?v=(\d+)$/.exec(window.__app.map.getSource('garmin').tiles?.[0] ?? '')?.[1] ?? 0));
   const before = await opfs();
-  console.log('OPFS after the first import:', JSON.stringify(before));
+  console.log('OPFS after the first start:', JSON.stringify(before));
   if (!before.pointer || !before.names.includes(`${before.pointer.dir}/`)) fail(`no committed map dir: ${JSON.stringify(before)}`);
-  if (mapDirs(before).length !== 1 || setDirs(before).length !== 1) fail(`first import: expected one map and one elevation set, got ${JSON.stringify(before)}`);
+  if (mapDirs(before).length !== 1 || setDirs(before).length !== 1) fail(`first start: expected one map and one elevation set, got ${JSON.stringify(before)}`);
   const buttonShown = () => page.$eval('#maps-button', (b) => !b.closest('.maplibregl-ctrl').hidden);
   if (await buttonShown()) fail('map button shown with one map and one set');
   await page.click('#menu-button');
   await page.click('#settings-open');
   await page.click('#settings-map');
   await page.waitForSelector('#maps-panel:not([hidden]) #maps-add', { timeout: 10_000 });
+  if (await page.$('#maps-panel.standalone')) fail('the Maps panel over the map is the first-start one');
   const panelText = await page.$eval('#maps-panel', (e) => e.innerText);
   if (!/Iceland GPSmap\.is 2024\.21 Detailed/.test(panelText) || !/3″ elevation · 48 files/.test(panelText) || !/used by 1 map/.test(panelText)) fail(`maps panel: ${panelText}`);
-  await page.click('#maps-add');
-  await page.waitForSelector('#import:not([hidden])', { timeout: 30_000 });
-  if ((await page.$eval('#import-title', (e) => e.textContent)) !== 'Add a map') fail('import screen not in "Add a map" mode');
-  if (await page.$('#import-cancel[hidden]')) fail('Cancel hidden when adding a map');
-  if (!(await page.$('#remove-stored[hidden]'))) fail('"Remove stored maps" offered when adding a map');
-  if (JSON.stringify(await opfs()) !== JSON.stringify(before)) fail('"Add a map" changed storage');
-  await Promise.all([page.waitForNavigation({ timeout: 60_000 }), page.click('#import-cancel')]);
-  await waitReady();
-  if (await page.$('#import:not([hidden])')) fail('import screen shown after Cancel');
-  if (!(await page.evaluate(() => !!window.__app.map.getSource('dem')))) fail('hillshade missing after Cancel');
-  console.log('cancel back to the map ok');
 
-  // 7. A second map (no files of its own): it's kept beside the first and takes the stored set,
-  //    which covers it. Its name comes from the file.
-  await page.click('#menu-button');
-  await page.click('#maps-open');
-  await page.click('#maps-add');
-  await page.waitForSelector('#import:not([hidden])', { timeout: 30_000 });
-  await (await page.$('#img-file')).uploadFile(IMG2);
-  await page.waitForFunction(() => /Covers this map/.test(document.querySelector('#import-elevation-options [aria-checked="true"]')?.textContent ?? ''), { timeout: 60_000 })
-    .catch(() => fail('the stored elevation set was not picked for the new map'));
-  if ((await page.$eval('#import-name', (e) => e.value)) !== 'Iceland GPSmap.is 2024.21 Focused') fail('name not taken from the file');
-  if (!(await page.$('#hgt-row[hidden]'))) fail('elevation file picker shown with a stored set chosen');
+  // 7. A second map from "Add a map" (the file browser): kept beside the first, shown in place with
+  //    the stored set (it covers the map), named after its file.
+  const g0 = await tileGen();
   const t1 = Date.now();
-  await Promise.all([page.waitForNavigation({ timeout: 600_000 }), page.click('#import-button')]);
+  await (await page.$('#maps-add-input')).uploadFile(IMG2);
+  await page.waitForSelector('#map-note:not([hidden])', { timeout: 600_000 }).catch(async () => fail(`adding a map: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
   console.log(`adding a map took ${((Date.now() - t1) / 1000).toFixed(1)} s`);
-  await waitReady();
+  if (!(await page.$('#maps-panel[hidden]'))) fail('the Maps panel stayed open over the added map');
+  if (!/Focused/.test(await page.$eval('#map-note', (e) => e.innerText))) fail('the note does not name the added map');
   const two = await opfs();
   console.log('OPFS with two maps:', JSON.stringify(two));
   if (mapDirs(two).length !== 2 || setDirs(two).length !== 1 || two.pointer.dir === before.pointer.dir) fail(`expected two maps and one set: ${JSON.stringify(two)}`);
   const focusedDir = two.pointer.dir;
+  const g1 = await tileGen();
+  if (g1 <= g0) fail('the added map was not shown in place');
   if (!(await page.evaluate(() => !!window.__app.map.getSource('dem')))) fail('the added map has no hillshading from the stored set');
   if (!(await buttonShown())) fail('map button hidden with two maps');
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
@@ -1437,7 +1431,7 @@ try {
   if (pickerRows.length !== 2 || pickerRows.find((r) => r.on === 'true')?.text?.includes('Focused') !== true) fail(`map picker: ${JSON.stringify(pickerRows)}`);
   await page.screenshot({ path: `${OUT}maps-picker.png` });
   await page.evaluate(() => [...document.querySelectorAll('#map-picker [role="menuitemradio"]')].find((r) => r.textContent.includes('Detailed')).click());
-  await page.waitForSelector('#map-note:not([hidden])', { timeout: 60_000 });
+  await page.waitForFunction(() => !document.querySelector('#map-note').hidden && /Detailed/.test(document.querySelector('#map-note').innerText), { timeout: 60_000 });
   await page.evaluate(() => new Promise((r) => window.__app.map.once('idle', r)));
   const v1 = await view();
   if (JSON.stringify(v0) !== JSON.stringify(v1)) fail(`switching moved the map: ${JSON.stringify(v0)} → ${JSON.stringify(v1)}`);
@@ -1446,14 +1440,14 @@ try {
     return { tiles: m.getSource('garmin').tiles?.[0], dem: !!m.getSource('dem'), star: m.hasImage('saved-star'), pins: !!m.getLayer('saved-pins'), note: document.querySelector('#map-note').innerText };
   });
   console.log('after switching:', JSON.stringify(afterSwitch));
-  if (!/\?v=2$/.test(afterSwitch.tiles ?? '') || !afterSwitch.dem || !afterSwitch.star || !afterSwitch.pins || !/Detailed/.test(afterSwitch.note)) fail(`switch: ${JSON.stringify(afterSwitch)}`);
+  if (!afterSwitch.tiles?.endsWith(`?v=${g1 + 1}`) || !afterSwitch.dem || !afterSwitch.star || !afterSwitch.pins || !/Detailed/.test(afterSwitch.note)) fail(`switch: ${JSON.stringify(afterSwitch)}`);
   if ((await opfs()).pointer.dir !== before.pointer.dir) fail('switching did not make the map current');
   await page.screenshot({ path: `${OUT}maps-switched.png` });
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
   if (!(await page.evaluate(() => window.__app.search('landmannalaugar').length > 0))) fail('search found nothing after switching');
   // Undo goes back.
   await page.click('#map-note-undo');
-  await page.waitForFunction(() => window.__app.map.getSource('garmin').tiles?.[0]?.endsWith('?v=3'), { timeout: 60_000 });
+  await page.waitForFunction((g) => window.__app.map.getSource('garmin').tiles?.[0]?.endsWith(`?v=${g}`), { timeout: 60_000 }, g1 + 2);
   // The picker, still open, follows.
   await page.waitForFunction(() => document.querySelector('#map-picker [role="menuitemradio"][aria-checked="true"]')?.textContent.includes('Focused'), { timeout: 10_000 })
     .catch(() => fail('the map picker did not follow Undo'));
@@ -1539,7 +1533,7 @@ try {
   }, one.pointer.dir, setDirs(one)[0].replace(/\/$/, ''));
   await page.reload();
   await waitReady();
-  if (await page.$('#import:not([hidden])')) fail('older layout: map not loaded');
+  if (await page.$('#maps-panel.standalone')) fail('older layout: map not loaded');
   if (!(await page.evaluate(() => !!window.__app.map.getSource('dem')))) fail('older layout: hillshading lost');
   const upgraded = await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
@@ -1559,7 +1553,7 @@ try {
   });
   await page.reload();
   await waitReady();
-  if (await page.$('#import:not([hidden])')) fail('empty pointer lost the stored map');
+  if (await page.$('#maps-panel.standalone')) fail('empty pointer lost the stored map');
   console.log('empty pointer falls back ok');
 
   // 10. A new version deployed while the app is open (sw.js with a later build): coming back into

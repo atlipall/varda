@@ -35,6 +35,9 @@ async function readSet(dir: FileSystemDirectoryHandle, id: string, choices: Choi
 }
 
 /** Reads what's stored. Elevation that older versions kept with a map is made a set first. */
+/** Nothing stored (what to show when storage can't be read). */
+export const emptyLibrary = (): Library => ({ maps: [], sets: [], current: null, choices: parseChoices(null) });
+
 export async function loadLibrary(): Promise<Library> {
   const root = await storageRoot();
   const entries = (await listEntries(root)).filter((e) => e.kind === 'directory');
@@ -137,12 +140,12 @@ export interface ImportChoices {
   elevation?: string | null;
 }
 
-/** Adds a map (and its .hgt files as a new elevation set) and makes it the current map. */
+/** Adds a map (and its .hgt files as a new elevation set) and makes it the current map; resolves to its id. */
 export const importFiles = (img: File, hgt: File[], onProgress: (m: string) => void, opts: ImportChoices = {}) =>
-  runWorker({ type: 'import', img, hgt, opts }, onProgress);
+  runWorker<string>({ type: 'import', img, hgt, opts }, onProgress);
 
-/** Downloads a zipped map and adds it as `imgName`, like an import of that file. */
-export const downloadMap = (url: string, imgName: string, onProgress: (m: string) => void) => runWorker({ type: 'download', url, imgName }, onProgress);
+/** Downloads a zipped map and adds it as `imgName`, like an import of that file; resolves to its id. */
+export const downloadMap = (url: string, imgName: string, onProgress: (m: string) => void) => runWorker<string>({ type: 'download', url, imgName }, onProgress);
 
 /** Stores .hgt files as a new elevation set, or adds them to set `into`; resolves to the set's id. */
 export const importElevation = (hgt: File[], into: string | null, onProgress: (m: string) => void) =>

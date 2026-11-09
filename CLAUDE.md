@@ -78,8 +78,10 @@ npm run icons                           # redraw the app's and Android app's ico
   `garmin-<ts>/`, sets in `elevation-<ts>/` (or an older map's `dem/`, upgraded in place with a
   `set.json`), `current.json` as before, choices in `maps.json` (`web/src/storage/library.ts`).
   Switching is in place (`web/src/app/mapSource.ts`: `setStyle` with the app's own layers carried
-  over; the old map's workers are closed before the new ones open, for the iPhone's memory). Not
-  merged; to try on the dev site and the phone.
+  over; the old map's workers are closed before the new ones open, for the iPhone's memory). The
+  old import screen is gone: the Maps panel is also the first screen (`MapsUi` with `Standalone`,
+  from `startup.ts`), and "Add a map" opens the file browser and shows the map at once (name from
+  the file, hillshading automatic). On the dev site since 2026-11-09; not merged.
 
 - **`embed` branch (2026-11-08): a tile server and widget for web pages**, `tile-server/` (its own
   package and node_modules, like `android/`; `npm run build|test|typecheck|check` there; it
@@ -145,4 +147,4 @@ npm run icons                           # redraw the app's and Android app's ico
 - **Android app on the head unit**: works, location included, since 1.15 (Chrome only); 1.16 keeps the
   unit's system bar (clock, back) visible. Next, when asked: background location tracking. Details in
   `android/CLAUDE.md`.
-- Import screen tip is iOS-only ("Share → Add to Home Screen"); Android would need its own.
+- The first screen's Home Screen tip is iOS-only ("Share → Add to Home Screen"); Android would need its own.

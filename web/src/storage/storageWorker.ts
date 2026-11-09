@@ -170,21 +170,23 @@ interface MapOptions {
   elevation?: string | null;
 }
 
-async function doImport(img: File, hgt: File[], opts: MapOptions): Promise<void> {
+async function doImport(img: File, hgt: File[], opts: MapOptions): Promise<string> {
   progress('Checking map file…');
-  const map = await GarminMap.open(new BlobSource(img)); // throws a tile-named ImgError for locked/corrupt maps
+  // Throws a tile-named ImgError for locked/corrupt maps. Only the area is kept: the parsed map is
+  // let go before the (long) copy.
+  const { bounds } = await GarminMap.open(new BlobSource(img));
   await checkSpace(img.size + hgt.reduce((n, f) => n + f.size, 0));
   // Elevation first: a map whose new set failed is never added (nor a set whose map failed).
   const set = hgt.length ? await storeElevation(hgt, null) : undefined;
   try {
-    await storeMap(async (dir) => {
+    return await storeMap(async (dir) => {
       await writeBytes(dir, 'map.img', async (h) => {
         for (let off = 0; off < img.size; off += CHUNK) {
           await h.write(new Uint8Array(await img.slice(off, off + CHUNK).arrayBuffer()), { at: off });
           progress(`Copying map ${Math.min(100, Math.round(((off + CHUNK) / img.size) * 100))}%`);
         }
       });
-      return { version: 1, imgName: img.name, imgSize: img.size, imgLastModified: img.lastModified, hgtNames: [], hasOverview: false, bounds: map.bounds };
+      return { version: 1, imgName: img.name, imgSize: img.size, imgLastModified: img.lastModified, hgtNames: [], hasOverview: false, bounds };
     }, { ...opts, ...(set ? { elevation: set } : {}) });
   } catch (err) {
     if (set) await removeEntry(await storageRoot(), set, true);
@@ -194,7 +196,7 @@ async function doImport(img: File, hgt: File[], opts: MapOptions): Promise<void>
 
 /** Downloads a zipped map (one .img in a zip) and stores it as `imgName`, unpacking it on the way:
  *  the phone never holds the whole file in memory. */
-async function doDownload(url: string, imgName: string): Promise<void> {
+async function doDownload(url: string, imgName: string): Promise<string> {
   progress('Connecting…');
   let res: Response;
   try {
@@ -219,7 +221,7 @@ async function doDownload(url: string, imgName: string): Promise<void> {
     throw err;
   }
 
-  await storeMap(async (dir) => {
+  return storeMap(async (dir) => {
     let at = 0;
     try {
       await writeBytes(dir, 'map.img', async (h) => {
@@ -244,8 +246,9 @@ async function doDownload(url: string, imgName: string): Promise<void> {
 
 /** Writes a new map into a fresh directory (`fill` writes its files and returns its meta), records
  *  the choices made for it and makes it the current map. Other maps stay. A failure removes the
- *  new directory; afterwards unfinished leftovers of earlier imports are removed. */
-async function storeMap(fill: (dir: FileSystemDirectoryHandle) => Promise<StoredMeta>, opts: MapOptions): Promise<void> {
+ *  new directory; afterwards unfinished leftovers of earlier imports are removed. Resolves to the
+ *  new directory's name (the map's id). */
+async function storeMap(fill: (dir: FileSystemDirectoryHandle) => Promise<StoredMeta>, opts: MapOptions): Promise<string> {
   const root = await storageRoot();
   const name = await freshName(root, DIR_PREFIX);
   const dir = await root.getDirectoryHandle(name, { create: true });
@@ -268,6 +271,7 @@ async function storeMap(fill: (dir: FileSystemDirectoryHandle) => Promise<Stored
   await writeSmall(root, POINTER, encode({ dir: name }));
   progress('Cleaning up…');
   await removeLeftovers(root, name).catch((err) => console.warn('cleanup', err));
+  return name;
 }
 
 /** Removes directories an interrupted import left behind: a map directory with neither a finished
@@ -378,8 +382,8 @@ self.onmessage = async (e: MessageEvent) => {
   const msg = e.data;
   try {
     let result: unknown;
-    if (msg.type === 'import') await doImport(msg.img as File, msg.hgt as File[], msg.opts as MapOptions);
-    else if (msg.type === 'download') await doDownload(msg.url as string, msg.imgName as string);
+    if (msg.type === 'import') result = await doImport(msg.img as File, msg.hgt as File[], msg.opts as MapOptions);
+    else if (msg.type === 'download') result = await doDownload(msg.url as string, msg.imgName as string);
     else if (msg.type === 'elevation') result = await storeElevation(msg.hgt as File[], msg.into as string | null);
     else if (msg.type === 'inspect') {
       const map = await GarminMap.open(new BlobSource(msg.img as File));

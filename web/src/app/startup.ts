@@ -1,10 +1,12 @@
 import { BUILD } from '../buildInfo';
-import { hasStoredData, loadLibrary, type Library } from '../storage/store';
+import { emptyLibrary, hasStoredData, loadLibrary, removeMap, setCurrent, type Library } from '../storage/store';
 import { androidApp, diag } from './diagnostics';
-import { showImport } from './importScreen';
+import { MapsUi, type Standalone } from './mapsPanel';
 import { showUpdateNotice } from './updateNotice';
 import { browserEnv, UpdateWatcher } from './updates';
 import { startViewer } from './viewer';
+
+const errorText = (what: string, err: unknown) => `${what}: ${err instanceof Error ? err.message : String(err)}`;
 
 export async function startApp(): Promise<void> {
   diag('page loaded');
@@ -31,15 +33,38 @@ export async function startApp(): Promise<void> {
     lib = await loadLibrary();
   } catch (err) {
     console.error(err);
-    return showImport(`Could not read the stored maps: ${err instanceof Error ? err.message : String(err)}`, { hasMap: true });
+    return showMapsAlone({ error: errorText('Could not read the stored maps', err), unreadable: true });
   }
-  // Leftover data that doesn't form a loadable map can still be removed from the import screen;
-  // stored elevation files are offered for the first map.
-  if (!lib.maps.length) return showImport('', { hasMap: await hasStoredData().catch(() => false), lib });
+  // No map yet: the Maps panel is the first screen. Leftover data that doesn't make a map or a
+  // set of elevation files can be removed there.
+  if (!lib.maps.length) return showMapsAlone({ leftovers: !lib.sets.length && (await hasStoredData().catch(() => false)) });
   try {
     await startViewer(lib, { reloadFromServer });
   } catch (err) {
     console.error(err);
-    showImport(`Could not open the stored map: ${err instanceof Error ? err.message : String(err)}`, { hasMap: true });
+    // Another map can be shown instead, or this one removed.
+    showMapsAlone({ error: errorText('Could not open the map', err), failed: lib.current ?? undefined });
   }
+}
+
+/** The Maps panel on its own, with no map behind it: adding, showing or removing a map starts the
+ *  app again with it. */
+function showMapsAlone(standalone: Standalone): void {
+  const ui = new MapsUi({
+    library: () => loadLibrary().catch(emptyLibrary),
+    current: () => null,
+    center: () => null,
+    switchTo: async (id) => {
+      await setCurrent(id);
+      location.reload();
+    },
+    refresh: async () => {},
+    add: async (store) => {
+      await store();
+      location.reload();
+    },
+    removeMap: (id) => removeMap(id),
+    changed: () => {},
+  }, standalone);
+  ui.showPanel(true);
 }
