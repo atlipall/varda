@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Varda · Several maps — mockup</title>
+<style>
+  :root { --ink: #1d2a38; --paper: #f4f0e4; --accent: #1d3f8f; --accent-soft: #eef3fb; --btn: 44px; --muted: #5d6673; --line: #0000001a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 32px 60px; background: #e6e2d6; color: var(--ink); font: 15px -apple-system, system-ui, sans-serif; }
+  header.doc { max-width: 1300px; margin: 0 auto 28px; }
+  header.doc h1 { margin: 0 0 6px; font-size: 28px; }
+  header.doc p { margin: 4px 0; max-width: 820px; line-height: 1.45; color: #333b46; }
+  .grid { display: flex; flex-wrap: wrap; gap: 40px 36px; justify-content: center; max-width: 1700px; margin: 0 auto; }
+  figure { margin: 0; width: 390px; }
+  figcaption { margin-top: 14px; line-height: 1.42; font-size: 14px; color: #333b46; }
+  figcaption b { display: block; font-size: 16px; color: var(--ink); margin-bottom: 4px; }
+  .num { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 6px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; vertical-align: 1px; }
+
+  /* ---- the phone ---- */
+  .phone { position: relative; width: 390px; height: 844px; overflow: hidden; border-radius: 46px; background: #d8d2bd url(../web/site/images/map.webp) center 52% / 140% auto; box-shadow: 0 0 0 10px #15181d, 0 18px 40px #0005; }
+  .phone.paper { background: var(--paper); }
+  .phone.alt { background-image: url(../web/site/images/place.webp); filter: none; }
+  .status { position: absolute; z-index: 9; top: 0; left: 0; right: 0; height: 47px; display: flex; justify-content: space-between; align-items: center; padding: 6px 32px 0 40px; font-weight: 600; font-size: 16px; }
+  .status::after { content: "▮▮▮ ◔ ▭"; font-size: 11px; letter-spacing: 1px; }
+  .island { position: absolute; z-index: 10; top: 11px; left: 50%; width: 120px; height: 34px; margin-left: -60px; border-radius: 20px; background: #000; }
+  .home { position: absolute; z-index: 10; bottom: 8px; left: 50%; width: 134px; height: 5px; margin-left: -67px; border-radius: 3px; background: #111; }
+
+  .panel { background: #fff; border-radius: 12px; box-shadow: 0 1px 8px #0003; }
+  .mbtn { position: absolute; z-index: 3; width: var(--btn); height: var(--btn); display: grid; place-items: center; }
+  .search { top: 55px; left: 8px; }
+  .dots { top: 55px; right: 8px; }
+  .layers { top: 107px; right: 8px; }
+  .layers.on { background: var(--accent); color: #fff; }
+  .locate { bottom: 40px; right: 8px; }
+  .scale { position: absolute; bottom: 44px; left: 10px; width: 90px; height: 18px; border: 2px solid #222; border-top: 0; font-size: 10px; padding: 3px 6px; background: #fff8; }
+  .dim { position: absolute; inset: 0; z-index: 2; background: #0000; }
+
+  /* A panel dropped from the top, like Settings and Tracks */
+  .sheet { position: absolute; z-index: 4; top: 107px; left: 8px; right: 8px; padding: 8px 14px 14px; max-height: 690px; overflow: hidden; }
+  .sheet.from-menu { top: 107px; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; }
+  .head h2 { margin: 0; font-size: 22px; }
+  .head .back { display: flex; align-items: center; gap: 2px; color: var(--accent); font-size: 16px; margin-left: -4px; }
+  .close { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 50%; background: #eef0f3; }
+  h3 { margin: 16px 0 2px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #667; }
+  .row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; }
+  .row .t { flex: 1; min-width: 0; }
+  .row .t .n { font-size: 16px; line-height: 1.25; }
+  .row .t .s { font-size: 13.5px; color: var(--muted); margin-top: 2px; line-height: 1.3; }
+  .row .chev { color: #a5abb4; font-size: 20px; }
+  .row.sel .n { font-weight: 600; }
+  .radio { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #b9bfc8; }
+  .radio.on { border: 7px solid var(--accent); }
+  .tick { flex: none; width: 24px; color: var(--accent); font-size: 20px; font-weight: 700; text-align: center; }
+  .thumb { flex: none; width: 44px; height: 44px; border-radius: 8px; background: url(../web/site/images/map.webp) 40% 30% / 400px; box-shadow: inset 0 0 0 1px #0002; }
+  .thumb.fzk { background: linear-gradient(135deg, #e9edd8 0 40%, #cfe0b8 40% 55%, #f2efe6 55%), #eee; background-image: repeating-linear-gradient(35deg, transparent 0 9px, #c9a37066 9px 10px), linear-gradient(135deg, #f1eedf, #cfe0b8); }
+  .thumb.sea { background: linear-gradient(160deg, #cfe2f3, #a9c9e6); }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; vertical-align: 2px; margin-left: 4px; }
+  .link { color: var(--accent); font-size: 16px; }
+  .item { display: block; min-height: 48px; padding: 13px 0; border-top: 1px solid var(--line); font-size: 16px; }
+  .item.link { color: var(--accent); }
+  .item.danger { color: #b00020; }
+  .note { font-size: 13.5px; color: var(--muted); line-height: 1.38; margin: 8px 0 0; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 16px; }
+  .btn.secondary { background: #fff; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .btn.full { display: flex; width: 100%; }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
+  .seg span { min-height: 36px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 18px; background: #eef0f3; font-size: 14.5px; }
+  .seg span.on { background: var(--accent); color: #fff; font-weight: 600; }
+  .storage { margin: 14px 0 0; }
+  .bar { height: 8px; border-radius: 4px; background: #eef0f3; overflow: hidden; display: flex; margin: 6px 0 4px; }
+  .bar i { display: block; height: 100%; }
+  .field { margin-top: 10px; }
+  .field .l { font-weight: 600; margin-bottom: 6px; }
+  .pick { display: flex; align-items: center; gap: 12px; }
+  .pick .fb { min-height: 44px; padding: 0 14px; display: inline-flex; align-items: center; border-radius: 8px; box-shadow: inset 0 0 0 1px #c4c8ce; font-weight: 600; }
+  .pick .fn { color: var(--muted); font-size: 14px; }
+  .input { min-height: 44px; display: flex; align-items: center; padding: 0 12px; border-radius: 8px; box-shadow: inset 0 0 0 1px #c4c8ce; font-size: 16px; }
+  .cover { position: relative; height: 120px; margin: 10px 0 4px; border-radius: 8px; overflow: hidden; background: #a9c9e6; }
+  .cover svg { position: absolute; inset: 0; }
+
+  /* the ⋯ menu */
+  .menu { position: absolute; z-index: 4; top: 107px; right: 8px; width: 230px; padding: 6px 0; }
+  .menu div { padding: 12px 16px; font-size: 16px; }
+  .menu div.new { background: var(--accent-soft); font-weight: 600; }
+
+  /* toast after switching */
+  .toast { position: absolute; z-index: 4; left: 8px; right: 8px; bottom: 96px; display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; border-radius: 12px; background: #1d2a38ee; color: #fff; font-size: 15px; }
+  .toast .t { flex: 1; line-height: 1.3; }
+  .toast .t small { display: block; color: #c9d3e0; font-size: 13px; }
+  .toast .u { min-height: 40px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 8px; background: #ffffff22; font-weight: 600; }
+
+  /* fake Freizeitkarte look for the switched map */
+  .phone.fzk { background: #f3f0e4; }
+  .phone.fzk::before { content: ""; position: absolute; inset: 0; background:
+      
+      radial-gradient(ellipse 60px 30px at 30% 35%, #9cc3e8 60%, transparent 62%),
+      radial-gradient(ellipse 40px 60px at 80% 30%, #9cc3e8 60%, transparent 62%),
+      repeating-radial-gradient(circle at 45% 55%, transparent 0 14px, #c9a37055 14px 15px),
+      linear-gradient(160deg, #e7ecd6, #f2efe3 60%, #e9e4d2); }
+  .phone.fzk::after { content: ""; position: absolute; inset: 0; background:
+      linear-gradient(115deg, transparent 49.6%, #d84b3a 49.6% 50.4%, transparent 50.4%),
+      linear-gradient(25deg, transparent 62%, #e8a33a 62% 62.7%, transparent 62.7%); opacity: .9; }
+  .lbl { position: absolute; z-index: 1; font: italic 600 13px -apple-system, sans-serif; color: #2b4f7a; letter-spacing: .04em; }
+</style>
+</head>
+<body>
+<header class="doc">
+  <h1>Several maps on one device</h1>
+  <p>Varda keeps every imported map instead of only one. You switch maps from a new button on the map, which keeps the place and zoom, or from ⋯ → Maps, where you also add and remove them. Elevation is stored separately as named sets. Any map can use any set for hillshading, so GPSmap.is and Freizeitkarte can share the same Iceland 1″ files.</p>
+  <p style="color:#667">Mockup, 9 Nov 2026 · iPhone screens at 390 × 844 · the head unit gets the same screens at car size</p>
+</header>
+
+<div class="grid">
+
+<!-- 1. Map with the new button -->
+<figure>
+  <div class="phone">
+    <div class="status">9:41</div><div class="island"></div>
+    <div class="mbtn panel search"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div>
+    <div class="mbtn panel dots"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+    <div class="mbtn panel layers"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3 12.5l9 5 9-5M3 16.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></div>
+    <div class="mbtn panel locate"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="scale">10 km</div>
+    <div class="home"></div>
+  </div>
+  <figcaption><b><span class="num">1</span>A map button under ⋯</b>The button appears only when two or more maps are stored, so people with one map see no change. On the head unit it gets the car size like the other buttons.</figcaption>
+</figure>
+
+<!-- 2. Quick picker -->
+<figure>
+  <div class="phone">
+    <div class="status">9:41</div><div class="island"></div>
+    <div class="mbtn panel search"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div>
+    <div class="mbtn panel dots"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+    <div class="sheet panel" style="top:107px">
+      <div class="head"><h2>Map</h2><div class="close"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></div></div>
+      <div class="row sel"><div class="thumb"></div><div class="t"><div class="n">GPSmap.is 2024.21 Detailed</div><div class="s">Iceland · Garmin</div></div><div class="tick">✓</div></div>
+      <div class="row"><div class="thumb fzk"></div><div class="t"><div class="n">Freizeitkarte Iceland</div><div class="s">Iceland · OpenStreetMap</div></div><div class="tick"></div></div>
+      <div class="row"><div class="thumb sea"></div><div class="t"><div class="n">Faroe Islands Topo</div><div class="s">Faroe Islands · not where you are</div></div><div class="tick"></div></div>
+      <h3>Hillshading</h3>
+      <div class="seg"><span class="on">Iceland 1″ HD</span><span>Iceland 3″</span><span>Off</span></div>
+      <p class="note">Only sets that cover this map are offered. The choice is remembered for this map.</p>
+      <div class="item link" style="margin-top:10px">Manage maps…</div>
+    </div>
+    <div class="mbtn panel locate"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="home"></div>
+  </div>
+  <figcaption><b><span class="num">2</span>Switch in one tap</b>Tap a map and it draws at the same place and zoom; the panel stays open so you can compare. Hillshading for the current map can be changed here too. A map that doesn't cover the place on screen says so but can still be picked; it then opens on its own area.</figcaption>
+</figure>
+
+<!-- 3. After switching -->
+<figure>
+  <div class="phone fzk">
+    <div class="status">9:41</div><div class="island"></div>
+    <div class="lbl" style="top:300px;left:70px">LANDMANNALAUGAR</div>
+    <div class="lbl" style="top:520px;left:150px">Hrafntinnusker</div>
+    <div class="lbl" style="top:640px;left:40px">Álftavatn</div>
+    <div class="mbtn panel search"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div>
+    <div class="mbtn panel dots"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+    <div class="mbtn panel layers"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3 12.5l9 5 9-5M3 16.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></div>
+    <div class="toast"><div class="t">Freizeitkarte Iceland<small>Hillshading: Iceland 1″ HD</small></div><div class="u">Undo</div></div>
+    <div class="mbtn panel locate" style="z-index:5"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="scale" style="z-index:3">10 km</div>
+    <div class="home"></div>
+  </div>
+  <figcaption><b><span class="num">3</span>Same place, other map</b>A note names the map now showing and its hillshading; Undo goes back, as with ending guidance. A route, guidance or a recording carries on: the route is worked out again on the new map's roads.</figcaption>
+</figure>
+
+<!-- 4. Menu -->
+<figure>
+  <div class="phone">
+    <div class="status">9:41</div><div class="island"></div>
+    <div class="mbtn panel search"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div>
+    <div class="mbtn panel dots"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+    <div class="menu panel">
+      <div>Tracks</div><div>Saved places</div><div>Photos</div><div class="new">Maps</div><div>Sync and backup</div><div>Settings</div>
+    </div>
+    <div class="mbtn panel locate"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="scale">10 km</div>
+    <div class="home"></div>
+  </div>
+  <figcaption><b><span class="num">4</span>⋯ → Maps</b>Maps gets its own place in the menu (highlighted here only to show it's new). In Settings, the Map section becomes one line, the current map's name, which opens this panel; "Load another map" moves into it as "Add a map".</figcaption>
+</figure>
+
+<!-- 5. Maps panel -->
+<figure>
+  <div class="phone">
+    <div class="status">9:41</div><div class="island"></div>
+    <div class="mbtn panel search"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div>
+    <div class="mbtn panel dots"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+    <div class="sheet panel" style="top:107px; bottom:96px">
+      <div class="head"><h2>Maps</h2><div class="close"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></div></div>
+      <div class="row sel"><div class="radio on"></div><div class="t"><div class="n">GPSmap.is 2024.21 Detailed</div><div class="s">812 MB · hillshading Iceland 1″ HD</div></div><div class="chev">›</div></div>
+      <div class="row"><div class="radio"></div><div class="t"><div class="n">Freizeitkarte Iceland</div><div class="s">255 MB · hillshading Iceland 1″ HD</div></div><div class="chev">›</div></div>
+      <div class="row"><div class="radio"></div><div class="t"><div class="n">Faroe Islands Topo</div><div class="s">64 MB · no hillshading</div></div><div class="chev">›</div></div>
+      <div class="btn secondary full" style="margin-top:8px">Add a map</div>
+      <h3>Elevation for hillshading</h3>
+      <div class="row"><div class="t"><div class="n">Iceland 1″ HD</div><div class="s">48 files · 1.2 GB · used by 2 maps</div></div><div class="chev">›</div></div>
+      <div class="row"><div class="t"><div class="n">Iceland 3″</div><div class="s">48 files · 138 MB · not used</div></div><div class="chev">›</div></div>
+      <div class="item link">Add elevation files</div>
+      <div class="storage"><div class="bar"><i style="width:22%;background:var(--accent)"></i><i style="width:20%;background:#7b93c6"></i><i style="width:58%;background:#eef0f3"></i></div><div class="note" style="margin:0">2.4 GB used on this iPhone · about 3.3 GB free for the app</div></div>
+    </div>
+    <div class="mbtn panel locate"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="home"></div>
+  </div>
+  <figcaption><b><span class="num">5</span>Maps panel</b>The radio switches maps (as in 2); the row opens its details. Elevation sets are listed on their own with what uses them. Sizes and the storage bar matter on the iPhone, where 1″ files are large.</figcaption>
+</figure>
+
+<!-- 6. Map details -->
+<figure>
+  <div class="phone">
+    <div class="status">9:41</div><div class="island"></div>
+    <div class="mbtn panel search"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div>
+    <div class="mbtn panel dots"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+    <div class="sheet panel" style="top:107px">
+      <div class="head"><div class="back"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Maps</div><div class="close"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></div></div>
+      <h2 style="margin:6px 0 2px;font-size:20px">Freizeitkarte Iceland</h2>
+      <div class="note" style="margin:0 0 6px">Freizeitkarte Iceland (OpenStreetMap).img · 255 MB · added 6 Oct 2026</div>
+      <h3>Hillshading</h3>
+      <div class="row"><div class="radio on"></div><div class="t"><div class="n">Iceland 1″ HD</div><div class="s">Covers all of this map</div></div></div>
+      <div class="row"><div class="radio"></div><div class="t"><div class="n">Iceland 3″</div><div class="s">Covers all of this map</div></div></div>
+      <div class="row"><div class="radio"></div><div class="t"><div class="n">Off</div></div></div>
+      <div class="item link" style="margin-top:6px">Show this map</div>
+      <div class="item">Rename</div>
+      <div class="item danger">Remove from this iPhone</div>
+    </div>
+    <div class="mbtn panel locate"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="home"></div>
+  </div>
+  <figcaption><b><span class="num">6</span>A map's details</b>Pick the hillshading set for this map. Removing a map leaves its elevation set alone, since another map may use it. Removing the map you're looking at switches to the next one; removing the last one opens "Load your map".</figcaption>
+</figure>
+
+<!-- 7. Add a map -->
+<figure>
+  <div class="phone">
+    <div class="status">9:41</div><div class="island"></div>
+    <div class="sheet panel" style="top:60px">
+      <div class="head"><div class="back"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Maps</div><div class="close"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></div></div>
+      <h2 style="margin:6px 0 4px;font-size:22px">Add a map</h2>
+      <div class="field"><div class="l">Map (.img)</div><div class="pick"><span class="fb">Choose file…</span><span class="fn">Faroe Islands Topo.img</span></div></div>
+      <div class="field"><div class="l">Name</div><div class="input">Faroe Islands Topo</div></div>
+      <h3>Hillshading</h3>
+      <div class="row"><div class="radio"></div><div class="t"><div class="n">Iceland 1″ HD</div><div class="s">Doesn't cover this map</div></div></div>
+      <div class="row"><div class="radio on"></div><div class="t"><div class="n">Add elevation files</div><div class="s">.hgt, select all · <span style="color:var(--accent)">Choose files…</span></div></div></div>
+      <div class="row"><div class="radio"></div><div class="t"><div class="n">None</div></div></div>
+      <div style="display:flex;gap:10px;margin-top:12px"><span class="btn">Add map</span><span class="btn secondary">Cancel</span></div>
+      <h3 style="margin-top:22px">No Garmin map?</h3>
+      <p class="note" style="margin-top:4px">Download the free map of Iceland made from OpenStreetMap (Freizeitkarte, 255 MB).</p>
+      <div class="btn secondary" style="margin-top:8px">Download free map</div>
+    </div>
+    <div class="home"></div>
+  </div>
+  <figcaption><b><span class="num">7</span>Add a map</b>The import screen, now adding rather than replacing. Hillshading picks the stored set that covers the map, or, when none does (as here), "Add elevation files". The name comes from the map's own header and can be edited. With no map stored, the first-run screen stays as it is today.</figcaption>
+</figure>
+
+<!-- 8. Elevation set details -->
+<figure>
+  <div class="phone">
+    <div class="status">9:41</div><div class="island"></div>
+    <div class="mbtn panel search"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div>
+    <div class="mbtn panel dots"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+    <div class="sheet panel" style="top:107px">
+      <div class="head"><div class="back"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Maps</div><div class="close"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></div></div>
+      <h2 style="margin:6px 0 2px;font-size:20px">Iceland 1″ HD</h2>
+      <div class="note" style="margin:0">48 files · 1″ (about 30 m) · 1.2 GB</div>
+      <div class="cover">
+        <svg viewBox="0 0 340 120" preserveAspectRatio="none">
+          <path d="M40 70 C 60 30, 120 20, 170 28 C 230 20, 290 35, 305 60 C 300 90, 250 102, 190 98 C 130 105, 70 100, 40 70 Z" fill="#efe9d8" stroke="#8a7d5f" stroke-width="1"/>
+          <g fill="#1d3f8f33" stroke="#1d3f8f" stroke-width=".8">
+            <rect x="30" y="15" width="40" height="22.5"/><rect x="70" y="15" width="40" height="22.5"/><rect x="110" y="15" width="40" height="22.5"/><rect x="150" y="15" width="40" height="22.5"/><rect x="190" y="15" width="40" height="22.5"/><rect x="230" y="15" width="40" height="22.5"/><rect x="270" y="15" width="40" height="22.5"/>
+            <rect x="30" y="37.5" width="40" height="22.5"/><rect x="70" y="37.5" width="40" height="22.5"/><rect x="110" y="37.5" width="40" height="22.5"/><rect x="150" y="37.5" width="40" height="22.5"/><rect x="190" y="37.5" width="40" height="22.5"/><rect x="230" y="37.5" width="40" height="22.5"/><rect x="270" y="37.5" width="40" height="22.5"/>
+            <rect x="30" y="60" width="40" height="22.5"/><rect x="70" y="60" width="40" height="22.5"/><rect x="110" y="60" width="40" height="22.5"/><rect x="150" y="60" width="40" height="22.5"/><rect x="190" y="60" width="40" height="22.5"/><rect x="230" y="60" width="40" height="22.5"/><rect x="270" y="60" width="40" height="22.5"/>
+            <rect x="70" y="82.5" width="40" height="22.5"/><rect x="110" y="82.5" width="40" height="22.5"/><rect x="150" y="82.5" width="40" height="22.5"/><rect x="190" y="82.5" width="40" height="22.5"/><rect x="230" y="82.5" width="40" height="22.5"/>
+          </g>
+        </svg>
+      </div>
+      <div class="note" style="margin:0 0 4px">Where the set has elevation</div>
+      <h3>Used by</h3>
+      <div class="row"><div class="t"><div class="n">GPSmap.is 2024.21 Detailed</div></div></div>
+      <div class="row"><div class="t"><div class="n">Freizeitkarte Iceland</div></div></div>
+      <div class="item link" style="margin-top:6px">Add more files to this set</div>
+      <div class="item">Rename</div>
+      <div class="item danger">Remove from this iPhone</div>
+      <p class="note">Maps that use it will be drawn without hillshading.</p>
+    </div>
+    <div class="home"></div>
+  </div>
+  <figcaption><b><span class="num">8</span>An elevation set</b>The coverage sketch shows which tiles you have, so a set built a few files at a time is easy to check. A new set is named from its resolution ("1″ elevation, 48 files") until renamed. Adding files that overlap a set's tiles replaces those tiles.</figcaption>
+</figure>
+
+</div>
+
+<header class="doc" style="margin-top:44px">
+  <h1 style="font-size:22px">Underneath</h1>
+  <p><b>Storage.</b> Each map in its own folder (<code>maps/&lt;id&gt;/map.img</code>, meta, places cache); each elevation set in its own folder (<code>elevation/&lt;id&gt;/*.hgt</code> + its overview). A small list file names the maps, their hillshading set and the current map, written last as today's pointer is. The dev version keeps its own folders as before.</p>
+  <p><b>Upgrade.</b> On first start the stored map moves to the new layout as the only map. Its .hgt files become a set named from what they are ("Iceland 1″ HD" if 1″). Nothing is downloaded or re-imported.</p>
+  <p><b>Switching</b> rebuilds the map's tile workers and style without a page reload. Search, routing and the places cache follow the current map. Saved places, tracks and photos stay shared. Sync doesn't carry maps; it can carry each map's chosen name and hillshading later if wanted.</p>
+</header>
+</body>
+</html>
