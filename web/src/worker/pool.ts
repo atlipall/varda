@@ -53,6 +53,11 @@ export class TilePool {
   private opened = false;
   private disposed = false;
 
+  /** Whether `dispose` was called (its calls then reject: not a failure of the map). */
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
+
   constructor(private readonly payload: OpenPayload, size: number) {
     for (let i = 0; i < size; i++) {
       this.respawns[i] = 0;

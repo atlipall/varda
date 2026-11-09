@@ -250,7 +250,9 @@
       <li><span>Tap <b>Import</b>. The files are copied into the app's storage on this device; a 100 MB map takes a few seconds.</span></li>
     </ol>
     <div class="shots"><figure><img src="images/import.webp" width="780" height="1688" loading="lazy" alt="The import screen with fields for the map file and the elevation files, an Import button, and a button to download a free map of Iceland" /><figcaption>The first screen: pick the map and elevation files.</figcaption></figure></div>
-    <p class="muted">To switch maps later, use <b>⋯ → Settings → Load another map</b>. Your current map stays until the new one has finished importing.</p>
+    <h3>More than one map</h3>
+    <p>Every map you add is kept. Add one in <b>⋯ → Maps → Add a map</b>. Once you have two, a map button under <b>⋯</b> switches between them in one tap, at the same place and zoom; a note says which map you're looking at, with <b>Undo</b>.</p>
+    <p>Elevation files are kept on their own, so one set of <code>.hgt</code> files gives every map its hill shading. Each map uses the set that covers it; to pick another, or none, use the map button or the map's row in <b>⋯ → Maps</b>. There you can also rename and remove maps and elevation files, and see how much room they take.</p>
     <h3>Or download the free map</h3>
     <p>Tap <b>Download free map</b> to fetch the Freizeitkarte map of Iceland (255 MB) and store it, unpacked, on this device. Use Wi-Fi if you can, and keep the app open until the map appears: if the download stops, tap the button again. Freizeitkarte publishes a new version every month or so; download again to update.</p>
     <p class="muted">Map © <a href="https://www.freizeitkarte-osm.de/garmin/en/">FZK project</a>, data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL); contour lines from Sonny's LiDAR DTM and JAXA AW3D30 (CC BY 4.0) and USGS. The download passes through a small helper of ours, because the browser can't fetch it from Freizeitkarte's server directly; the helper stores nothing. The map has no hill shading or ground height unless you add <code>.hgt</code> files.</p>
@@ -308,7 +310,7 @@
     <h3>Navigating a track</h3>
     <p>Tap <b>Navigate</b> on a track's card. If you're not on the track, the app plans the way to its nearest point ahead of you, then guides you along the track to its end. <b>Reverse</b> follows it the other way. A route saved as a track keeps its turn instructions; an imported track gets them from the map, with road names where it follows roads and the turns of its bends on trails ("Keep right on the trail"). Leave the track on a road and the app plans the way back to it; leave it on a trail and the banner says how far it is and which way.</p>
     <div class="shots"><figure><img src="images/tracks.webp" width="780" height="1688" loading="lazy" alt="The Tracks panel listing a GPX track with its distance and climb, and the track drawn on the map" /><figcaption>A GPX track: its line on the map, distance and climb in the list.</figcaption></figure></div>
-    <p class="muted">Tracks are stored on this device and stay when you load another map.</p>
+    <p class="muted">Tracks are stored on this device and stay when you switch maps.</p>
   </section>
 
   <section id="photos">
@@ -366,7 +368,7 @@
 
   <section id="screen">
     <h2>Keep the screen on</h2>
-    <div class="shots"><figure><img src="images/menu.webp" width="780" height="1688" loading="lazy" alt="Settings: the map loaded and Load another map, the Keep screen on and Ask before rerouting switches, Diagnostics and the version" /><figcaption><b>⋯ → Settings</b>, with its switches.</figcaption></figure></div>
+    <div class="shots"><figure><img src="images/menu.webp" width="780" height="1688" loading="lazy" alt="Settings: the map shown, the Keep screen on and Ask before rerouting switches, Diagnostics and the version" /><figcaption><b>⋯ → Settings</b>, with its switches.</figcaption></figure></div>
     <p>While location is on, the screen stays on so the map doesn't go dark as you walk. Turn this off in <b>⋯ → Settings → Keep screen on while locating</b>. It needs iOS 18.4 or later for Home Screen apps, and Low Power Mode may still let the screen sleep.</p>
   </section>
 
@@ -423,7 +425,7 @@
       <li><b>To stop syncing</b>, tap <b>Stop syncing</b> in <b>⋯ → Sync and backup</b>; this also withdraws that device's access key at Google. To remove the synced copy and the app's access, open your Google Account's <a href="https://myaccount.google.com/connections">third-party connections</a> and remove Varda, and delete the app's hidden data under Drive's <b>Settings → Manage apps</b>.</li>
       <li><b>The download helper.</b> <b>Download free map</b> fetches the Freizeitkarte map through a small helper of ours (a Cloudflare Worker at <code>download.vardamaps.app</code>), because the browser can't fetch it from Freizeitkarte's server directly. It passes that one file on and keeps nothing; Freizeitkarte's server sees the helper's request, not yours. Cloudflare may log basic request details such as IP addresses.</li>
       <li><b>Downloading the app.</b> The app is served by GitHub Pages, which may log basic request details such as your IP address when the app is downloaded or updated; see <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's privacy statement</a>. After that the app works offline. The Android app is downloaded from GitHub too; it only opens this same app in Chrome (or in its own built-in browser), asks for nothing but your location, and collects nothing.</li>
-      <li><b>Deleting your data.</b> Remove the app from your Home Screen or clear the website data for vardamaps.app in your browser settings. <b>⋯ → Load another map → Remove stored map</b> removes the map files.</li>
+      <li><b>Deleting your data.</b> Remove the app from your Home Screen or clear the website data for vardamaps.app in your browser settings. <b>⋯ → Maps</b> removes maps and elevation files one at a time.</li>
       <li>Questions: open an issue on <a href="https://github.com/atlipall/varda/issues">GitHub</a>.</li>
     </ul>
   </section>

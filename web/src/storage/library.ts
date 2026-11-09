@@ -16,6 +16,8 @@ export interface SetInfo {
   files: string[];
   /** Samples per degree of the finest file: 1200 (3″) or 3600 (1″). */
   step: number;
+  /** The overview's file in the set's directory. */
+  overview: string;
   bytes: number;
   squares: Array<{ south: number; west: number }>;
 }
@@ -73,8 +75,13 @@ export function parseChoices(text: string | null): Choices {
 
 export interface SetJson {
   name: string;
+  /** The .hgt files; none: elevation an older version kept that couldn't be read (left alone). */
   files: string[];
   step: number;
+  /** The overview's file (a new name each time files are added: a map may be reading the last). */
+  overview: string;
+  /** The files' size (sets written before it was kept: unknown). */
+  bytes?: number;
 }
 
 /** A set's `set.json` (written last: a set without it is unfinished), or null. */
@@ -83,7 +90,13 @@ export function parseSetJson(text: string | null): SetJson | null {
   try {
     const s = JSON.parse(text);
     if (!isObj(s) || s.version !== 1 || typeof s.name !== 'string' || !Array.isArray(s.files) || !s.files.every((f) => typeof f === 'string') || typeof s.step !== 'number') return null;
-    return { name: s.name, files: s.files as string[], step: s.step };
+    return {
+      name: s.name,
+      files: s.files as string[],
+      step: s.step,
+      overview: typeof s.overview === 'string' ? s.overview : 'overview.bin',
+      ...(typeof s.bytes === 'number' ? { bytes: s.bytes } : {}),
+    };
   } catch {
     return null;
   }
@@ -93,27 +106,29 @@ export function parseSetJson(text: string | null): SetJson | null {
  *  `n64w019.<ts>.hgt` until the old file is gone, and read as `n64w019.hgt`. */
 export const canonicalHgtName = (stored: string) => stored.replace(/^([ns]\d{2}[ew]\d{3})\.\d+\.hgt$/i, '$1.hgt');
 
-export const defaultSetName = (step: number, n: number) => `${step > HGT_STEP ? '1″' : '3″'} elevation · ${n} file${n === 1 ? '' : 's'}`;
+export const defaultSetName = (step: number, n: number) => `${step > HGT_STEP ? '1″' : '3″'} elevation · ${filesText(n)}`;
 
-/** The 1° squares a map's area touches. */
-function squaresOf(b: Bounds): Array<{ south: number; west: number }> {
-  const out: Array<{ south: number; west: number }> = [];
-  const [w, s, e, n] = b;
-  for (let south = Math.floor(s); south < Math.ceil(n) || south === Math.floor(s); south++) {
-    for (let west = Math.floor(w); west < Math.ceil(e) || west === Math.floor(w); west++) out.push({ south, west });
-  }
-  return out;
-}
-
-/** How much of the map's area (in 1° squares it touches) the set has elevation for, 0 to 1. */
+/** How much of the map's area the set has elevation for, 0 to 1. A map's area is a rectangle that
+ *  takes in sea (and runs a little past whole degrees) where there are no elevation files, so a
+ *  set made for the map covers most of it rather than all (GPSmap.is and its files: 85%). */
 export function coverage(set: Pick<SetInfo, 'squares'>, b: Bounds): number {
-  const have = new Set(set.squares.map((q) => `${q.south},${q.west}`));
-  const want = squaresOf(b);
-  return want.filter((q) => have.has(`${q.south},${q.west}`)).length / want.length;
+  const [w, s, e, n] = b;
+  const area = (e - w) * (n - s);
+  if (area <= 0) return 0;
+  let covered = 0;
+  for (const q of set.squares) {
+    const dx = Math.min(e, q.west + 1) - Math.max(w, q.west);
+    const dy = Math.min(n, q.south + 1) - Math.max(s, q.south);
+    if (dx > 0 && dy > 0) covered += dx * dy;
+  }
+  return Math.min(1, covered / area);
 }
+
+/** From this share of its area on, a set is said to cover a map. */
+export const COVERS = 0.75;
 
 export function coverageText(c: number): string {
-  if (c >= 1) return 'Covers all of this map';
+  if (c >= COVERS) return 'Covers this map';
   return c > 0 ? 'Covers part of this map' : "Doesn't cover this map";
 }
 
@@ -136,5 +151,14 @@ export function elevationFor(map: MapInfo, sets: SetInfo[]): SetInfo | null {
   if (map.elevation === null) return null;
   return sets.find((s) => s.id === map.elevation) ?? autoSet(sets, map.bounds);
 }
+
+/** A map's name from its file's: the file name without `.img`. */
+export const mapName = (imgName: string) => imgName.replace(/\.img$/i, '');
+
+/** "48 files", "1 file". */
+export const filesText = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
+
+/** What a map's hillshading is drawn from, as shown under its name. */
+export const hillshadingText = (set: { name: string } | null) => (set ? `Hillshading ${set.name}` : 'No hillshading');
 
 export const contains = (b: Bounds, [lon, lat]: [number, number]) => lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3];

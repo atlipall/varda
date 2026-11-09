@@ -2,20 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { autoSet, canonicalHgtName, contains, coverage, coverageText, defaultSetName, elevationFor, parseChoices, parseSetJson, type MapInfo, type SetInfo } from '../src/storage/library';
 
 const squares = (souths: number[], wests: number[]) => souths.flatMap((south) => wests.map((west) => ({ south, west })));
-const set = (id: string, step: number, sq: Array<{ south: number; west: number }>): SetInfo => ({ id, name: id, files: [], step, bytes: 0, squares: sq });
+const set = (id: string, step: number, sq: Array<{ south: number; west: number }>): SetInfo => ({ id, name: id, files: [], step, overview: 'overview.bin', bytes: 0, squares: sq });
 const iceland: [number, number, number, number] = [-24.5, 63.3, -13.5, 66.6];
 const map = (elevation?: string | null): MapInfo => ({ id: 'garmin-1', name: 'm', imgName: 'm.img', bytes: 1, added: 0, bounds: iceland, elevation });
 
 describe('coverage', () => {
   const all = set('a', 1200, squares([63, 64, 65, 66], [-25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14]));
   it('is 1 when every 1° square of the map has a file', () => expect(coverage(all, iceland)).toBe(1));
-  it('is a fraction for some squares', () => {
+  it('is the share of the map\'s area with files', () => {
     const c = coverage(set('p', 1200, squares([63, 64], [-25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14])), iceland);
-    expect(c).toBeCloseTo(0.5);
+    expect(c).toBeCloseTo(1.7 / 3.3);
+  });
+  it('says a map running past its files over the sea is covered (GPSmap.is and its own files)', () => {
+    const c = coverage(all, [-26.0101318359375, 62.984619140625, -11.9915771484375, 67.0111083984375]);
+    expect(c).toBeGreaterThan(0.8);
+    expect(coverageText(c)).toBe('Covers this map');
   });
   it('is 0 elsewhere', () => expect(coverage(set('f', 1200, [{ south: 61, west: -8 }]), iceland)).toBe(0));
   it('words it', () => {
-    expect(coverageText(1)).toBe('Covers all of this map');
+    expect(coverageText(1)).toBe('Covers this map');
     expect(coverageText(0.4)).toBe('Covers part of this map');
     expect(coverageText(0)).toBe("Doesn't cover this map");
   });
@@ -52,7 +57,8 @@ describe('stored files', () => {
     expect(parseChoices('{"maps":{"garmin-1":{"name":3,"elevation":4,"bounds":[1]}}}')).toEqual({ maps: { 'garmin-1': {} }, sets: {} });
   });
   it('reads a set file', () => {
-    expect(parseSetJson('{"version":1,"name":"HD","files":["n64w019.hgt"],"step":3600}')).toEqual({ name: 'HD', files: ['n64w019.hgt'], step: 3600 });
+    expect(parseSetJson('{"version":1,"name":"HD","files":["n64w019.hgt"],"step":3600}')).toEqual({ name: 'HD', files: ['n64w019.hgt'], step: 3600, overview: 'overview.bin' });
+    expect(parseSetJson('{"version":1,"name":"HD","files":[],"step":3600,"overview":"overview.5.bin","bytes":9}')).toEqual({ name: 'HD', files: [], step: 3600, overview: 'overview.5.bin', bytes: 9 });
     expect(parseSetJson('{"version":2}')).toBeNull();
     expect(parseSetJson(null)).toBeNull();
   });

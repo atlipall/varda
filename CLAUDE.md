@@ -71,6 +71,16 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
+- **`multiple-maps` branch (2026-11-09): several maps, shared hillshading.** Mockup
+  `mockups/multiple-maps.html`, spec and plan in `docs/superpowers/`. Owner's choices: switch from a
+  map button under ⋯ *and* ⋯ → Maps; elevation kept as named sets any map can use (each map takes
+  the set covering it unless one, or Off, is chosen); switching keeps the view. OPFS: maps stay in
+  `garmin-<ts>/`, sets in `elevation-<ts>/` (or an older map's `dem/`, upgraded in place with a
+  `set.json`), `current.json` as before, choices in `maps.json` (`web/src/storage/library.ts`).
+  Switching is in place (`web/src/app/mapSource.ts`: `setStyle` with the app's own layers carried
+  over; the old map's workers are closed before the new ones open, for the iPhone's memory). Not
+  merged; to try on the dev site and the phone.
+
 - **`embed` branch (2026-11-08): a tile server and widget for web pages**, `tile-server/` (its own
   package and node_modules, like `android/`; `npm run build|test|typecheck|check` there; it
   reuses `web/src`, taking that code's packages from its own node_modules via `resolve.mjs`). Not

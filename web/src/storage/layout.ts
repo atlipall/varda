@@ -13,19 +13,34 @@
 export const LEGACY_DIR = 'garmin';
 export const POINTER = 'current.json';
 export const DIR_PREFIX = 'garmin-';
+/** Elevation sets of their own (`elevation-<ts>/`: *.hgt, overview.bin, set.json written last). */
+export const SET_PREFIX = 'elevation-';
+/** The user's names and hillshading choices (library.ts `Choices`). */
+export const CHOICES = 'maps.json';
 
 const DIR_RE = /^garmin-(\d+)(?:-(\d+))?$/;
+const SET_RE = /^elevation-(\d+)(?:-(\d+))?$/;
+
+/** When a `garmin-<ts>` / `elevation-<ts>` directory was made (ms), or 0. */
+export const dirTime = (name: string) => Number((DIR_RE.exec(name) ?? SET_RE.exec(name))?.[1] ?? 0);
 
 export interface StoredMeta {
   version: 1;
   imgName: string;
   imgSize: number;
   imgLastModified: number;
+  /** Elevation files stored with the map by older versions (in `dem/`, now a set of its own). */
   hgtNames: string[];
   hasOverview: boolean;
+  /** The map's area (west, south, east, north), written at import since several maps are kept. */
+  bounds?: [number, number, number, number];
 }
 
-export const isDataDir = (name: string) => name === LEGACY_DIR || name.startsWith(DIR_PREFIX);
+/** A directory holding a map (or, from older versions, a map's elevation in `dem/`). */
+export const isMapDir = (name: string) => name === LEGACY_DIR || DIR_RE.test(name);
+export const isSetDir = (name: string) => SET_RE.test(name);
+/** Any directory of the app's stored data. */
+export const isDataDir = (name: string) => name === LEGACY_DIR || name.startsWith(DIR_PREFIX) || name.startsWith(SET_PREFIX);
 
 export const isMissing = (err: unknown) =>
   err instanceof DOMException && (err.name === 'NotFoundError' || err.name === 'TypeMismatchError');
@@ -92,13 +107,31 @@ export async function listEntries(dir: FileSystemDirectoryHandle): Promise<Array
   return out;
 }
 
-async function readTextFile(dir: FileSystemDirectoryHandle, name: string): Promise<string | null> {
+/** A small file's text, or null when it isn't there. */
+export async function readTextFile(dir: FileSystemDirectoryHandle, name: string): Promise<string | null> {
   try {
     return await (await (await dir.getFileHandle(name)).getFile()).text();
   } catch (err) {
     if (isMissing(err)) return null;
     throw err;
   }
+}
+
+/** A subdirectory, or null when it isn't there. */
+export async function subdir(dir: FileSystemDirectoryHandle, name: string): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    return await dir.getDirectoryHandle(name);
+  } catch (err) {
+    if (isMissing(err)) return null;
+    throw err;
+  }
+}
+
+/** The directory of an elevation set: its id is its path, `elevation-<ts>` or `garmin-<ts>/dem`. */
+export async function setDir(root: FileSystemDirectoryHandle, id: string, create = false): Promise<FileSystemDirectoryHandle> {
+  const [top, sub] = id.split('/');
+  const d = await root.getDirectoryHandle(top, { create });
+  return sub ? d.getDirectoryHandle(sub, { create }) : d;
 }
 
 /** Complete-map check against OPFS; any missing piece means incomplete. */

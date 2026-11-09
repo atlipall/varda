@@ -24,8 +24,9 @@ export interface SessionRoute {
 }
 
 /** What the app brings back after iOS closes it (or it's reopened): the map view, location mode
- *  and route card. Tied to the map file it was saved with. */
+ *  and route card. Kept across maps (several are stored; switching keeps the view). */
 export interface Session {
+  /** The map it was saved with (its directory). */
   map: string;
   view: { center: [number, number]; zoom: number; bearing: number };
   location: LocationState;
@@ -41,9 +42,9 @@ const isPlace = (v: unknown): v is Place => {
   return !!p && (p.name === null || typeof p.name === 'string') && isNum(p.lon) && isNum(p.lat);
 };
 
-/** The stored session for map file `map`, or null when there's none, it's for another map, or it
- *  doesn't look right (an older format, hand-edited storage). */
-export function parseSession(raw: string | null, map: string): Session | null {
+/** The stored session, or null when there's none or it doesn't look right (an older format,
+ *  hand-edited storage). */
+export function parseSession(raw: string | null): Session | null {
   if (!raw) return null;
   let s: Session;
   try {
@@ -51,7 +52,8 @@ export function parseSession(raw: string | null, map: string): Session | null {
   } catch {
     return null;
   }
-  if (!s || s.map !== map) return null;
+  if (!s) return null;
+  const map = typeof s.map === 'string' ? s.map : '';
   const v = s.view;
   if (!v || !isLonLat(v.center) || !isNum(v.zoom) || !isNum(v.bearing)) return null;
   const l = s.location;
@@ -61,9 +63,9 @@ export function parseSession(raw: string | null, map: string): Session | null {
   return { map, view: { center: v.center, zoom: v.zoom, bearing: v.bearing }, location: { mode: l.mode, paused: l.paused }, route: r && { dest: r.dest, routed: r.routed, from: r.from, vias: r.vias ?? [], ...(r.at ? { at: r.at } : {}) } };
 }
 
-export function loadSession(map: string): Session | null {
+export function loadSession(): Session | null {
   try {
-    return parseSession(localStorage.getItem(KEY), map);
+    return parseSession(localStorage.getItem(KEY));
   } catch {
     return null;
   }

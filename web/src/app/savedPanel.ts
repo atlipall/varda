@@ -61,6 +61,10 @@ export class SavedPanel {
     private readonly tracksNow: () => StoredTrack[] = () => [],
   ) {
     map.addImage('saved-star', starImage(), { pixelRatio: 2 });
+    // A switch to another map that MapLibre can't apply as a change rebuilds the style without it.
+    map.on('styleimagemissing', (e) => {
+      if (e.id === 'saved-star' && !map.hasImage('saved-star')) map.addImage('saved-star', starImage(), { pixelRatio: 2 });
+    });
     map.addSource('saved', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({
       id: 'saved-pins',

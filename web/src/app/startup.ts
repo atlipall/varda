@@ -1,5 +1,5 @@
 import { BUILD } from '../buildInfo';
-import { hasStoredData, loadStored, type Stored } from '../storage/store';
+import { hasStoredData, loadLibrary, type Library } from '../storage/store';
 import { androidApp, diag } from './diagnostics';
 import { showImport } from './importScreen';
 import { showUpdateNotice } from './updateNotice';
@@ -26,17 +26,18 @@ export async function startApp(): Promise<void> {
     location.reload();
     return 'reloading' as const;
   };
-  let stored: Stored | null = null;
+  let lib: Library;
   try {
-    stored = await loadStored();
+    lib = await loadLibrary();
   } catch (err) {
     console.error(err);
-    return showImport(`Could not read the stored map: ${err instanceof Error ? err.message : String(err)}`, { hasMap: true });
+    return showImport(`Could not read the stored maps: ${err instanceof Error ? err.message : String(err)}`, { hasMap: true });
   }
-  // Leftover map data that doesn't form a loadable map can still be removed from the import screen.
-  if (!stored) return showImport('', { hasMap: await hasStoredData().catch(() => false) });
+  // Leftover data that doesn't form a loadable map can still be removed from the import screen;
+  // stored elevation files are offered for the first map.
+  if (!lib.maps.length) return showImport('', { hasMap: await hasStoredData().catch(() => false), lib });
   try {
-    await startViewer(stored, { reloadFromServer });
+    await startViewer(lib, { reloadFromServer });
   } catch (err) {
     console.error(err);
     showImport(`Could not open the stored map: ${err instanceof Error ? err.message : String(err)}`, { hasMap: true });

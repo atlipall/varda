@@ -328,6 +328,13 @@ export class RoutePlanner {
     void this.route();
   }
 
+  /** Plans the route shown again where it is (another map's roads), without moving the map. */
+  replan(): void {
+    if (!this.dest || !this.started || this.choosing) return;
+    this.fitRoute = false;
+    void this.route();
+  }
+
   /** The card to remember across restarts: the place and, once routed, where from. */
   snapshot(): SessionRoute | null {
     if (!this.dest) return null;

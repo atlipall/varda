@@ -1,12 +1,12 @@
 import * as maplibregl from 'maplibre-gl';
-import { emptyTyp, parseTyp, type Typ } from '../img/typ';
 import type { RoadClasses } from '../routing/roadClass';
 import { collapseNearby, describePlace, nearName, titleCase, townsOf } from '../search/describe';
 import { PlaceIndex } from '../search/placeIndex';
 import type { Place } from '../search/places';
 import { decodePlacesCache, encodePlacesCache } from '../search/placesCache';
-import { cacheKey, readText, writeText, type Stored } from '../storage/store';
-import { buildStyle, FONT_REGULAR } from '../style/buildStyle';
+import { cacheKey, changeChoices, loadLibrary, loadMap, readText, removeMap, setCurrent, writeText, type Library, type Stored } from '../storage/store';
+import { contains, elevationFor, hillshadingText, mapName, type MapInfo } from '../storage/library';
+import { FONT_REGULAR } from '../style/buildStyle';
 import { preloadImages } from '../ui/images';
 import { versionLabel } from '../buildInfo';
 import { DEV } from '../channel';
@@ -31,8 +31,10 @@ import { TripRecorder } from './tripRecorder';
 import { Navigator } from './navigation';
 import { loadSession, saveSession } from './session';
 import { TracksPanel } from './tracks';
-import { TilePool, type OpenMeta } from '../worker/pool';
+import type { TilePool } from '../worker/pool';
 import { showImport } from './importScreen';
+import { carryOver, openSource, parseTileUrl, type MapSource } from './mapSource';
+import { MapsUi } from './mapsPanel';
 
 /** MapLibre zooms, i.e. one less than the raster samples' zoom, so the scale matches. */
 const SAMPLES: Array<{ name: string; center: [number, number]; zoom: number }> = [
@@ -58,44 +60,33 @@ declare global {
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const parseZxy = (url: string) => {
-  const m = /^[a-z]+:\/\/(\d+)\/(\d+)\/(\d+)$/.exec(url);
-  if (!m) throw new Error(`bad tile url ${url}`);
-  return [Number(m[1]), Number(m[2]), Number(m[3])] as const;
-};
-
-/** Touch devices tend to have many cores but weaker per-core performance and tighter memory, so
- *  they get a small fixed worker count; other devices scale with `hardwareConcurrency` (leaving
- *  one core for the main thread, capped so we don't over-subscribe). */
-function tileWorkerCount(): number {
-  if (navigator.maxTouchPoints > 0) return 2;
-  return Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
-}
+const glyphsUrl = () => new URL('fonts/', document.baseURI).href + '{fontstack}/{range}.pbf';
 
 export interface ViewerOptions {
   /** Loads the newest version of the app from the server (the Android app's menu item). */
   reloadFromServer(): Promise<'offline' | 'reloading'>;
 }
 
-export async function startViewer(stored: Stored, opts: ViewerOptions): Promise<void> {
-  const pool = new TilePool({ file: stored.img, hgt: stored.hgt, overview: stored.overview }, tileWorkerCount());
-  let meta: OpenMeta;
+/** Opens the current map of `lib` (which has at least one) with its hillshading. */
+export async function startViewer(lib: Library, opts: ViewerOptions): Promise<void> {
+  const info = lib.maps.find((m) => m.id === lib.current) ?? lib.maps[lib.maps.length - 1];
+  const stored = await loadMap(lib, info.id, elevationFor(info, lib.sets));
+  const src = await openSource(stored, 1, glyphsUrl());
   try {
-    meta = await pool.open();
-  } catch (err) {
-    pool.dispose();
-    throw err;
-  }
-  try {
-    mountViewer(stored, pool, meta, opts);
+    mountViewer(lib, src, opts);
   } catch (err) {
     // e.g. no WebGL: don't leave tile workers (holding the map file) running behind the error.
-    pool.dispose();
+    src.pool.dispose();
     throw err;
   }
 }
 
-function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: ViewerOptions): void {
+function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void {
+  /** The map shown: its workers, style and files. Switching maps (or a map's hillshading) swaps it. */
+  let src = first;
+  let pool: TilePool = src.pool;
+  /** Tile addresses carry it, so tiles asked for the last map are never drawn on this one. */
+  let gen = 1;
   const debug = new URLSearchParams(location.search).has('debug');
   const perf = new PerfStats($('perf'));
   $('perf').hidden = !debug;
@@ -103,13 +94,22 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
 
   // A worker that crashed (often out of memory on a phone) rejects the tiles it was building; the
   // pool starts a new one, so try once more there (MapLibre never retries a failed tile itself).
-  const again = <T>(get: () => Promise<T>, signal: AbortSignal): Promise<T> =>
-    get().catch((err) => {
-      if (signal.aborted || (err as Error)?.name === 'AbortError') throw err;
-      return get();
-    });
+  // A tile asked for a map no longer shown (its workers closed meanwhile) ends as cancelled.
+  const again = <T>(get: () => Promise<T>, signal: AbortSignal, of: number): Promise<T> => {
+    const gone = (err: unknown): never => {
+      throw of !== gen ? new DOMException('another map is shown', 'AbortError') : err;
+    };
+    return get().catch((err) => (signal.aborted || (err as Error)?.name === 'AbortError' || of !== gen ? gone(err) : get().catch(gone)));
+  };
+  /** The tile at `url`, unless it was asked for a map no longer shown. */
+  const current = (url: string) => {
+    const t = parseTileUrl(url);
+    if (t.gen !== gen) throw new DOMException('another map is shown', 'AbortError');
+    return t;
+  };
   maplibregl.addProtocol('garmin', async (params, abortController) => {
-    const r = await again(() => pool.tile(...parseZxy(params.url), abortController.signal), abortController.signal);
+    const { z, x, y, gen: of } = current(params.url);
+    const r = await again(() => pool.tile(z, x, y, abortController.signal), abortController.signal, of);
     perf.record(r.ms, r.badSections, r.features);
     if (r.badSections) {
       bad += r.badSections;
@@ -118,44 +118,50 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
     }
     return { data: r.data };
   });
-  if (meta.demBounds) {
-    maplibregl.addProtocol('dem', async (params, abortController) => {
-      const r = await again(() => pool.dem(...parseZxy(params.url), abortController.signal), abortController.signal);
-      if (r.bitmap) return { data: r.bitmap };
-      if (r.rgba) return { data: await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba), 256, 256)) };
-      throw new Error(`empty DEM tile ${params.url}`);
-    });
-  }
-
-  let typ: Typ;
-  try {
-    typ = meta.typ ? parseTyp(meta.typ) : emptyTyp();
-  } catch (err) {
-    console.warn('failed to parse TYP style file, falling back to default styling', err);
-    typ = emptyTyp();
-  }
-  const glyphs = new URL('fonts/', document.baseURI).href + '{fontstack}/{range}.pbf';
-  const { style, images } = buildStyle(typ, {
-    tiles: 'garmin://{z}/{x}/{y}',
-    glyphs,
-    ...(meta.demBounds ? { dem: 'dem://{z}/{x}/{y}', demBounds: meta.demBounds, demMaxZoom: meta.demMaxZoom ?? undefined } : {}),
+  maplibregl.addProtocol('dem', async (params, abortController) => {
+    const { z, x, y, gen: of } = current(params.url);
+    const r = await again(() => pool.dem(z, x, y, abortController.signal), abortController.signal, of);
+    if (r.bitmap) return { data: r.bitmap };
+    if (r.rgba) return { data: await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba), 256, 256)) };
+    throw new Error(`empty DEM tile ${params.url}`);
   });
-  const [w, s, e, n] = meta.bounds;
-  // Where the app was last time (iOS may close it in the background or when memory runs short).
-  const session = loadSession(stored.meta.imgName);
-  const view = session ? { center: session.view.center, zoom: session.view.zoom, bearing: session.view.bearing } : { bounds: [[w, s], [e, n]] as [[number, number], [number, number]] };
-  const map = new maplibregl.Map({ container: 'map', style, ...view, maxZoom: 18, attributionControl: false });
+
+  const mapArea = (b: [number, number, number, number]) => [[b[0], b[1]], [b[2], b[3]]] as [[number, number], [number, number]];
+  // Where the app was last time (iOS may close it in the background or when memory runs short),
+  // when that's on this map.
+  const session = loadSession();
+  const view = session && contains(src.meta.bounds, session.view.center)
+    ? { center: session.view.center, zoom: session.view.zoom, bearing: session.view.bearing }
+    : { bounds: mapArea(src.meta.bounds) };
+  const map = new maplibregl.Map({ container: 'map', style: src.style, ...view, maxZoom: 18, attributionControl: false });
   // Register every icon/pattern before any tile is fetched (see src/ui/images.ts); the
   // styleimagemissing handler stays as a defensive fallback.
-  preloadImages(map, images);
+  preloadImages(map, src.images);
   map.on('styleimagemissing', (ev) => {
-    const img = images.get(ev.id);
+    const img = src.images.get(ev.id);
     if (img && !map.hasImage(ev.id)) map.addImage(ev.id, img);
   });
-  map.on('error', (ev) => console.error(ev.error));
+  map.on('error', (ev) => {
+    if ((ev.error as Error | undefined)?.name !== 'AbortError') console.error(ev.error?.message ?? ev.error, ev.error);
+  });
   // Phones pinch to zoom, so they get only the compass; the locate button sits bottom-right,
   // within thumb reach.
   const touch = matchMedia('(pointer: coarse)').matches;
+  // The map button (choosing a map and its hillshading) under ⋯, above the compass.
+  const maps = new MapsUi({
+    library: () => loadLibrary(),
+    current: () => ({ id: src.stored.id, set: src.stored.set }),
+    center: () => {
+      const c = map.getCenter();
+      return [c.lng, c.lat];
+    },
+    switchTo: (id) => switchTo(id, true),
+    refresh: (without) => refresh(without),
+    addMap: () => addMap(),
+    removeMap: (id) => removeOne(id),
+    changed: (l) => showLabels(l),
+  });
+  map.addControl(maps.mapsButton, 'top-right');
   map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: !touch }), 'top-right');
   // Locate button (bottom-right): follow with north up / heading up, direction cone, ground height.
   const height = new HeightControl();
@@ -203,12 +209,24 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
   if (session) locate.restore(session.location);
   // Corner controls stack upwards in the order added: the height pill sits above the scale bar, and
   // a map whose licence asks for credit has it (folded into an ⓘ button) below both.
-  const credit = conventionsFor(meta.description).credit;
-  if (credit) {
-    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: credit }), 'bottom-left');
+  let creditControl: maplibregl.AttributionControl | null = null;
+  /** The credit a map's licence asks for (folded into an ⓘ), below the scale and height. */
+  const setCredit = (description: string) => {
+    if (creditControl) map.removeControl(creditControl);
+    creditControl = null;
+    const credit = conventionsFor(description).credit;
+    if (!credit) return;
+    creditControl = new maplibregl.AttributionControl({ compact: true, customAttribution: credit });
+    map.addControl(creditControl, 'bottom-left');
+    const el = map.getContainer().querySelector('.maplibregl-ctrl-attrib');
+    // Added after the scale it would go above it (MapLibre puts the later control first).
+    el?.parentElement?.append(el);
     // MapLibre opens it until the first drag, over the scale and height; start folded instead.
-    map.once('load', () => map.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'));
-  }
+    const fold = () => map.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
+    // ('idle' rather than 'load', which a map fires only once: credits come and go with maps.)
+    map.once('idle', fold);
+  };
+  setCredit(src.meta.description);
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
   map.addControl(height, 'bottom-left');
   // The last GPS fix is the reference for search-result distances (the map centre when none is recent).
@@ -219,9 +237,22 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
     return { at: [c.lng, c.lat], gps: false };
   };
 
-  // Which map file is loaded (the GPSmap.is package has several variants that look different).
-  $('map-file').textContent = stored.meta.imgName.replace(/\.img$/i, '');
-  $('map-dem').textContent = stored.hgt.length ? `${stored.hgt.length} elevation file${stored.hgt.length === 1 ? '' : 's'}` : 'No elevation files';
+  // Which map is shown (the GPSmap.is package has several variants that look different) and its
+  // hillshading, in Settings; the map button once there's a choice.
+  const showLabels = (l: Library) => {
+    const m = l.maps.find((x) => x.id === src.stored.id);
+    $('map-file').textContent = m?.name ?? mapName(src.stored.meta.imgName);
+    $('map-dem').textContent = hillshadingText(src.stored.set);
+    maps.mapsButton.container.hidden = l.maps.length < 2 && l.sets.length < 2;
+  };
+  showLabels(lib);
+  /** A map from before several were kept learns its area when shown (for coverage in the panels). */
+  const learnArea = (l: Library, s: MapSource) => {
+    const id = s.stored.id;
+    if (l.maps.find((m) => m.id === id)?.bounds) return;
+    void changeChoices((c) => void ((c.maps[id] ??= {}).bounds = s.meta.bounds)).catch((err) => console.warn('map area', err));
+  };
+  learnArea(lib, src);
   $('app-version').textContent = (DEV ? 'Development version · ' : '') + versionLabel();
   $('topbar').hidden = false;
   collapsibleSearch(map);
@@ -279,16 +310,151 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
     if ((e as { originalEvent?: Event }).originalEvent) setMenu(false);
   });
   let closed = false;
-  $('replace').onclick = () => {
-    // Nothing is deleted here: the stored map stays until a new import commits (and Cancel
-    // reloads straight back into it). Stop the workers and the map to free memory for the import.
-    closed = true;
+  /** Adding a map: the import screen. Stop the workers and the map to free memory for the import
+   *  (Cancel reloads straight back into the map shown). */
+  const addMap = () => {
+    void loadLibrary().catch(() => null).then((l) => {
+      saveNow();
+      closed = true;
+      dialogs.closeAll();
+      setMenu(false);
+      $('settings').hidden = true;
+      pool.dispose();
+      map.remove();
+      for (const id of ['topbar', 'menu-button', 'badge', 'perf', 'map-note']) $(id).hidden = true;
+      showImport('', { add: true, canCancel: true, lib: l });
+    });
+  };
+  // ⋯ → Maps, and Settings' map row: the maps panel.
+  $('maps-open').onclick = () => {
     setMenu(false);
+    maps.showPanel(true);
+  };
+  $('settings-map').onclick = () => {
     $('settings').hidden = true;
+    maps.showPanel(true);
+  };
+  dialogs.add('maps', () => maps.showPanel(false));
+  dialogs.add('map-picker', () => maps.showPicker(false));
+
+  /** Draws `next` instead of `prev`, keeping the app's own layers and icons. */
+  const put = (next: MapSource, prev: MapSource) => {
+    src = next;
+    pool = next.pool;
+    for (const img of prev.images.keys()) if (map.hasImage(img)) map.removeImage(img);
+    map.setStyle(next.style, { transformStyle: (p, n) => carryOver(p, n, prev) });
+    preloadImages(map, next.images);
+    bad = 0;
+    $('badge').hidden = true;
+  };
+  /** The set map `info` should draw from; `without`, a set about to be removed, counts as gone (and
+   *  a map that chose it as having chosen none). */
+  const elevationOf = (info: MapInfo, l: Library, without?: string) =>
+    info.elevation !== undefined && info.elevation === without ? null : elevationFor(info, l.sets.filter((s) => s.id !== without));
+  /** Map changes, one at a time (an Undo while a switch is still on its way waits for it). */
+  let queue: Promise<unknown> = Promise.resolve();
+  const queued = <T>(run: () => Promise<T>): Promise<T> => {
+    const p = queue.then(run);
+    queue = p.catch(() => {});
+    return p;
+  };
+  /** Shows map `id` with the hillshading chosen for it, in place: the app's own layers, the view
+   *  (when the map covers it), a route and guidance stay. Throws, keeping the map shown, when it
+   *  can't be opened. Run through `queued`. */
+  const show = async (id: string, without?: string): Promise<{ lib: Library; from: string }> => {
+    const l = await loadLibrary();
+    const info = l.maps.find((m) => m.id === id);
+    if (!info) throw new Error('That map is no longer stored.');
+    const stored = await loadMap(l, id, elevationOf(info, l, without));
+    const prev = src;
+    if (closed) return { lib: l, from: prev.stored.id };
+    // The workers of the map shown go first: two maps' workers at once is more memory than a phone
+    // may give (its tiles stop meanwhile; those drawn stay). If the next map can't be opened, the
+    // one shown comes back; if even that fails, the app starts again.
+    gen += 1;
+    prev.pool.dispose();
+    let next: MapSource;
+    try {
+      next = await openSource(stored, gen, glyphsUrl());
+    } catch (err) {
+      const back = await openSource(prev.stored, ++gen, glyphsUrl()).catch(() => null);
+      if (!back) {
+        closed = true;
+        location.reload();
+        throw err;
+      }
+      put(back, prev);
+      if (!index) startPlaces(back);
+      throw err;
+    }
+    const sameMap = prev.stored.id === id;
+    put(next, prev);
+    // The place index was being read by the workers just closed: read it again.
+    if (sameMap && !index) startPlaces(next);
+    if (!sameMap) {
+      setCredit(next.meta.description);
+      const c = map.getCenter();
+      if (!contains(next.meta.bounds, [c.lng, c.lat])) map.fitBounds(mapArea(next.meta.bounds), { duration: 0 });
+      await setCurrent(id).catch((err) => console.warn('current map', err));
+      learnArea(l, next);
+      startPlaces(next);
+      app.routePlanner?.replan();
+      saveNow();
+    }
+    showLabels(l);
+    return { lib: l, from: prev.stored.id };
+  };
+  let noteTimer = 0;
+  const hideNote = () => {
+    clearTimeout(noteTimer);
+    $('map-note').hidden = true;
+  };
+  /** Switches to map `id`; with `note`, says so for 8 s with Undo. */
+  const switchTo = (id: string, note: boolean): Promise<void> => queued(async () => {
+    if (id === src.stored.id) return;
+    const { lib: l, from } = await show(id);
+    if (!note) return;
+    const small = document.createElement('small');
+    small.textContent = hillshadingText(src.stored.set);
+    $('map-note-text').replaceChildren(l.maps.find((m) => m.id === id)?.name ?? '', small);
+    $('map-note').hidden = false;
+    clearTimeout(noteTimer);
+    noteTimer = window.setTimeout(hideNote, 8000);
+    $('map-note-undo').onclick = () => {
+      hideNote();
+      void switchTo(from, false).then(() => maps.reload()).catch((err) => console.error('undo map switch', err));
+    };
+  });
+  /** Draws the map shown again when the elevation it should use isn't the one it has (a choice,
+   *  a set added, changed or about to be removed: `without`). */
+  const refresh = (without?: string): Promise<void> => queued(async () => {
+    const l = await loadLibrary();
+    const info = l.maps.find((m) => m.id === src.stored.id);
+    if (!info) return;
+    const want = elevationOf(info, l, without);
+    const have = src.stored.set;
+    const same = (want?.id ?? null) === (have?.id ?? null) && (want?.files.join() ?? '') === (have?.files.join() ?? '');
+    if (!same) await show(info.id, without);
+    else showLabels(l);
+  });
+  /** Removes a map. The map shown goes to another one first (its files are in use); removing the
+   *  last one leads to the first-run screen. */
+  const removeOne = async (id: string): Promise<void> => {
+    const last = await queued(async () => {
+      if (id !== src.stored.id) return false;
+      const next = (await loadLibrary()).maps.filter((m) => m.id !== id).pop();
+      if (!next) return true;
+      await show(next.id);
+      return false;
+    });
+    if (!last) return removeMap(id);
+    closed = true;
     pool.dispose();
-    map.remove();
-    for (const id of ['topbar', 'menu-button', 'badge', 'perf']) $(id).hidden = true;
-    showImport('', { hasMap: true, canCancel: true });
+    try {
+      await removeMap(id);
+    } finally {
+      location.reload();
+    }
   };
 
   const app = { map, perf, ready: false, placesReady: false, search: (_q: string): Place[] | null => null, samples: SAMPLES, tracks: null as TracksPanel | null, trackCard: null as TrackCard | null, trip: null as TripRecorder | null, lastIntent: null as string | null, routePlanner: null as RoutePlanner | null, saved: null as SavedPanel | null, photos: null as Photos | null, sync: null as DriveSync | null, navigator: null as Navigator | null, screenAwake: awake };
@@ -296,14 +462,58 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
   // F-road/track classes from the place-index pass, keyed by tile id and NET offset. Resolved
   // once `loadPlaces` finishes; a route requested before then awaits this instead. Rejected if
   // `loadPlaces` fails, so a route requested with no road index shows a message instead of
-  // "Preparing roads…" forever.
-  let resolveRoads: (roads: RoadClasses) => void;
-  let rejectRoads: (err: Error) => void;
-  const roadsReady = new Promise<RoadClasses>((res, rej) => {
-    resolveRoads = res;
-    rejectRoads = rej;
-  });
-  roadsReady.catch(() => {}); // avoid an unhandled-rejection warning when no route is ever requested
+  // "Preparing roads…" forever. A new one for each map shown.
+  let roadsReady: Promise<RoadClasses> = new Promise(() => {});
+  /** The map's named places, by name and kind (search) once loaded. */
+  let index: PlaceIndex | null = null;
+  let searchWired = false;
+  /** Names of the nearest place to a spot (photos), for the map shown. */
+  const nearCache = new Map<string, string | null>();
+  /** Settles the roads promise of the map shown before (a no-op once it has settled). */
+  let settleRoads: ((roads: Promise<RoadClasses>) => void) | null = null;
+  const startPlaces = (s: MapSource) => {
+    let resolveRoads!: (roads: RoadClasses | Promise<RoadClasses>) => void;
+    let rejectRoads!: (err: Error) => void;
+    const before = settleRoads;
+    roadsReady = new Promise<RoadClasses>((res, rej) => {
+      resolveRoads = res;
+      rejectRoads = rej;
+    });
+    roadsReady.catch(() => {}); // avoid an unhandled-rejection warning when no route is ever requested
+    settleRoads = resolveRoads;
+    // A route still waiting for the last map's roads is planned on this map's.
+    before?.(roadsReady);
+    const input = $<HTMLInputElement>('search');
+    if (index) {
+      // Another map: its places, once read (the search stays usable meanwhile with none).
+      index = null;
+      places = [];
+      nearCache.clear();
+      app.placesReady = false;
+      app.search = () => null;
+      input.placeholder = 'Loading places…';
+      input.disabled = !searchWired;
+    }
+    void loadPlaces(s.stored, s.pool)
+      .then((loaded) => {
+        if (closed || src !== s) return;
+        resolveRoads(loaded.roads);
+        index = loaded.index;
+        places = loaded.index.places;
+        app.search = (q) => loaded.index.search(q);
+        app.placesReady = true;
+        if (!searchWired) wireSearch(map, () => index, searchFrom, (d) => app.routePlanner?.pick(d), () => app.routePlanner?.clearPlace(), dialogs);
+        searchWired = true;
+        input.placeholder = 'Search places';
+        input.disabled = false;
+      })
+      .catch((err) => {
+        if (closed || src !== s || s.pool.isDisposed) return; // the map was put away (another shown, or adding one) mid-build
+        console.error('search index', err);
+        input.placeholder = 'Search unavailable';
+        rejectRoads(new Error("Routing is unavailable: the map index couldn't be built."));
+      });
+  };
   map.once('idle', () => (app.ready = true));
   // GPX tracks: drawn above the map once its style has loaded; ⋯ → Tracks lists and imports them.
   // The route planner is built after it so its route line draws above GPX tracks.
@@ -314,7 +524,7 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
     if (closed) return;
     const c = map.getCenter();
     saveSession({
-      map: stored.meta.imgName,
+      map: src.stored.id,
       view: { center: [c.lng, c.lat], zoom: map.getZoom(), bearing: map.getBearing() },
       location: locate.current,
       route: app.routePlanner ? app.routePlanner.snapshot() : session?.route ?? null,
@@ -418,7 +628,6 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
     });
     saved.onChanged = tracks.onChanged = () => sync.changed();
     app.sync = sync;
-    const nearCache = new Map<string, string | null>();
     // Photos (⋯ → Photos): thumbnails where they were taken; synced with the rest when that's on.
     const photos = new Photos({
       map,
@@ -524,48 +733,34 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
     };
   });
 
-  void loadPlaces(stored, pool)
-    .then(({ index, roads }) => {
-      if (closed) return;
-      resolveRoads(roads);
-      places = index.places;
-      app.search = (q) => index.search(q);
-      app.placesReady = true;
-      wireSearch(map, index, searchFrom, (d) => app.routePlanner?.pick(d), () => app.routePlanner?.clearPlace(), dialogs);
-      const input = $<HTMLInputElement>('search');
-      input.placeholder = 'Search places';
-      input.disabled = false;
-    })
-    .catch((err) => {
-      if (closed) return; // "Load another map" disposed the pool mid-build
-      console.error('search index', err);
-      $<HTMLInputElement>('search').placeholder = 'Search unavailable';
-      rejectRoads(new Error("Routing is unavailable: the map index couldn't be built."));
-    });
+  startPlaces(src);
+  void maps.reload().catch((err) => console.warn('maps', err));
 }
 
 async function loadPlaces(stored: Stored, pool: TilePool): Promise<{ index: PlaceIndex; roads: RoadClasses }> {
   const key = cacheKey(stored.meta);
-  const cached = await readText('places.json').catch(() => null);
+  const cached = await readText(stored.id, 'places.json').catch(() => null);
   if (cached) {
     const decoded = decodePlacesCache(cached, key);
     if (decoded) return { index: new PlaceIndex(decoded.places), roads: decoded.roads };
   }
   const { places, roads } = await pool.places();
   // A failed cache write only costs a rebuild next launch; search still works now.
-  await writeText('places.json', encodePlacesCache(key, places, roads)).catch((err) => console.warn('places cache', err));
+  await writeText(stored.id, 'places.json', encodePlacesCache(key, places, roads)).catch((err) => console.warn('places cache', err));
   return { index: new PlaceIndex(places), roads };
 }
 
 function wireSearch(
   map: maplibregl.Map,
-  index: PlaceIndex,
+  /** The map shown's places (none while another map's are read). */
+  indexNow: () => PlaceIndex | null,
   searchFrom: () => { at: [number, number]; gps: boolean },
   onPick: (dest: { name: string | null; lon: number; lat: number }) => void,
   onClear: () => void,
   dialogs: Dialogs,
 ): void {
-  const towns = townsOf(index.places);
+  let townsFor: PlaceIndex | null = null;
+  let towns: ReturnType<typeof townsOf> = [];
   const input = $<HTMLInputElement>('search');
   const list = $<HTMLUListElement>('results');
   let timer = 0;
@@ -604,6 +799,12 @@ function wireSearch(
     }
   });
   const render = () => {
+    const index = indexNow();
+    if (!index) return;
+    if (townsFor !== index) {
+      towns = townsOf(index.places);
+      townsFor = index;
+    }
     list.replaceChildren(
       ...collapseNearby(index.search(input.value, 100, searchFrom().at)).slice(0, 20).map((p, i) => {
         const from = searchFrom();
