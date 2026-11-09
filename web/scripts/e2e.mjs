@@ -1453,9 +1453,8 @@ try {
   const panelText = await page.$eval('#maps-panel', (e) => e.innerText);
   if (!/Iceland GPSmap\.is 2024\.21 Detailed/.test(panelText) || !/3″ elevation · 48 files/.test(panelText) || !/used by 1 map/.test(panelText)) fail(`maps panel: ${panelText}`);
 
-  // 7. A second map from "Add a map" (the file browser): kept beside the first, shown in place with
-  //    the stored set (it covers the map), named after its file. The panel stays open with it ticked.
-  const g0 = await tileGen();
+  // 7. A second map from "Add a map" (the file browser): kept beside the first, named after its
+  //    file, only added to the list: the panel stays open and the map shown stays.
   const t1 = Date.now();
   await (await page.$('#maps-add-input')).uploadFile(IMG2);
   await page.waitForFunction(() => /Map added/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 })
@@ -1463,12 +1462,20 @@ try {
   console.log(`adding a map took ${((Date.now() - t1) / 1000).toFixed(1)} s`);
   if (await page.$('#maps-panel[hidden]')) fail('the Maps panel closed after adding a map');
   if (!(await page.$('#map-note[hidden]'))) fail('a switch note shown after adding a map');
-  const ticked = await page.$$eval('#maps-panel .map-row', (rs) => rs.filter((r) => r.querySelector('[aria-checked="true"]')).map((r) => r.textContent));
-  if (ticked.length !== 1 || !/Focused/.test(ticked[0])) fail(`the added map is not ticked: ${JSON.stringify(ticked)}`);
+  const mapRows = await page.$$eval('#maps-panel .map-row', (rs) => rs.map((r) => ({ text: r.textContent, on: !!r.querySelector('[aria-checked="true"]') })));
+  if (mapRows.length !== 2 || !mapRows.some((r) => /Focused/.test(r.text) && !r.on) || !mapRows.some((r) => /Detailed/.test(r.text) && r.on)) fail(`after adding a map: ${JSON.stringify(mapRows)}`);
   const two = await opfs();
   console.log('OPFS with two maps:', JSON.stringify(two));
-  if (mapDirs(two).length !== 2 || setDirs(two).length !== 1 || two.pointer.dir === before.pointer.dir) fail(`expected two maps and one set: ${JSON.stringify(two)}`);
-  const focusedDir = two.pointer.dir;
+  if (mapDirs(two).length !== 2 || setDirs(two).length !== 1 || two.pointer.dir !== before.pointer.dir) fail(`expected two maps and one set, the first still current: ${JSON.stringify(two)}`);
+  await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
+  if (!(await page.evaluate(() => window.__app.search('landmannalaugar').length > 0))) fail('search found nothing after adding a map');
+  // Shown from its row's circle, in place, with the stored set (it covers the map).
+  const g0 = await tileGen();
+  await page.evaluate(() => [...document.querySelectorAll('#maps-panel .map-row')].find((r) => r.textContent.includes('Focused')).querySelector('.pick').click());
+  await page.waitForSelector('#map-note:not([hidden])', { timeout: 60_000 });
+  if (!/Focused/.test(await page.$eval('#map-note', (e) => e.innerText))) fail('the note does not name the map switched to');
+  const focusedDir = (await opfs()).pointer.dir;
+  if (focusedDir === before.pointer.dir) fail('showing the added map did not make it current');
   const g1 = await tileGen();
   if (g1 <= g0) fail('the added map was not shown in place');
   if (!(await page.evaluate(() => !!window.__app.map.getSource('dem')))) fail('the added map has no hillshading from the stored set');

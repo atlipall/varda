@@ -1,6 +1,6 @@
 import type * as maplibregl from 'maplibre-gl';
 import { contains, coverage, coverageText, elevationFor, filesText, hillshadingText, type MapInfo, type SetInfo } from '../storage/library';
-import { changeChoices, clearStored, downloadMap, importElevation, importFiles, removeSet, requestPersistence, type Library } from '../storage/store';
+import { changeChoices, clearStored, downloadMap, importElevation, importFiles, removeSet, requestPersistence, type ImportChoices, type Library } from '../storage/store';
 import { HGT_STEP } from '../dem/hgt';
 import { acceptDrops, extensions } from '../ui/drop';
 import { editName } from '../ui/rename';
@@ -22,8 +22,8 @@ export interface MapsHost {
   /** Draws the map shown again when its elevation set should change (a choice, a set added or
    *  removed; `without`: a set about to be removed). */
   refresh(without?: string): Promise<void>;
-  /** Adds a map (`store` copies it and resolves to its id; it becomes the current map) and shows
-   *  it. Rejects, with the map shown before still there, when it couldn't be added. */
+  /** Adds a map (`store` copies it and resolves to its id). With a map open, that one stays shown;
+   *  with none, the new one is shown. Rejects when it couldn't be added. */
   add(store: () => Promise<string>): Promise<void>;
   /** Removes a map (another one is shown when it was this one; none left: the empty panel). */
   removeMap(id: string): Promise<void>;
@@ -138,7 +138,7 @@ export class MapsUi {
       if (!this.stillBusy()) this.showError('Drop one map (.img file) at a time.');
       return;
     }
-    if (imgs.length) this.storeMap((onProgress) => importFiles(imgs[0], hgt, onProgress));
+    if (imgs.length) this.storeMap((onProgress, opts) => importFiles(imgs[0], hgt, onProgress, opts));
     else this.addElevation(hgt, this.view.kind === 'set' ? this.view.id : null);
   }
 
@@ -367,18 +367,18 @@ export class MapsUi {
     return h('div', {}, remove, this.status());
   }
 
-  /** Stores a map (`store` resolves to its id) and shows it behind the panel, which stays open on
-   *  the list with the new map ticked. */
-  private storeMap(store: (onProgress: (m: string) => void) => Promise<string>): void {
+  /** Stores a map (`store` resolves to its id). With a map open it's only added to the list (the
+   *  panel stays open; the map shown stays); the first map is shown. */
+  private storeMap(store: (onProgress: (m: string) => void, opts: ImportChoices) => Promise<string>): void {
     void this.act(async () => {
       await requestPersistence().catch(() => false); // best effort: never block an import on it
-      await this.host.add(() => store((m) => this.progress(m)));
+      await this.host.add(() => store((m) => this.progress(m), { current: !!this.standalone }));
       this.view = { kind: 'list' };
     }, 'Map added.');
   }
 
   private addMap(file: File): void {
-    this.storeMap((onProgress) => importFiles(file, [], onProgress));
+    this.storeMap((onProgress, opts) => importFiles(file, [], onProgress, opts));
   }
 
   private download(): void {
@@ -387,7 +387,7 @@ export class MapsUi {
       this.showError('You are offline. Connect to the internet to download the map.');
       return;
     }
-    this.storeMap((onProgress) => downloadMap(FREE_MAP_URL, FREE_MAP_NAME, onProgress));
+    this.storeMap((onProgress, opts) => downloadMap(FREE_MAP_URL, FREE_MAP_NAME, onProgress, opts));
   }
 
   private go(view: View): void {

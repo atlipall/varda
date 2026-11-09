@@ -158,7 +158,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     },
     switchTo: (id) => switchTo(id, true),
     refresh: (without) => refresh(without),
-    add: (store) => addMap(store), // the panel stays open, the added map ticked
+    add: (store) => addMap(store),
     removeMap: (id) => removeOne(id),
     changed: (l) => showLabels(l),
   });
@@ -403,24 +403,17 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     const { lib: l, from } = await show(id);
     if (note) noteSwitch(l, id, from);
   });
-  /** Adds a map and shows it. The workers of the map shown are closed for the copy (a phone's
-   *  memory: the importer reads the new map too; tiles drawn stay); a failed one brings them back. */
+  /** Adds a map beside the one shown, which stays. Its workers are closed for the copy (a phone's
+   *  memory: the importer reads the new map too; tiles drawn stay) and opened again after. */
   const addMap = (store: () => Promise<string>): Promise<void> => queued(async () => {
     const before = src;
     gen += 1;
     before.pool.dispose();
-    let id: string;
     try {
-      id = await store();
-    } catch (err) {
+      await store();
+    } finally {
       await show(before.stored.id).catch((e) => console.error('reopening the map', e));
-      throw err;
     }
-    // Stored, and current: if it won't open, the map shown before stays current too.
-    await show(id).catch(async (err) => {
-      await setCurrent(before.stored.id).catch(() => {});
-      throw err;
-    });
   });
   /** Says which map is shown now, with Undo back to `from`, for 8 s. */
   const noteSwitch = (l: Library, id: string, from: string) => {

@@ -168,6 +168,8 @@ interface MapOptions {
   name?: string;
   /** The set to use: an id, null for none, undefined for automatic. */
   elevation?: string | null;
+  /** False: stored beside the current map, which stays current. */
+  current?: boolean;
 }
 
 async function doImport(img: File, hgt: File[], opts: MapOptions): Promise<string> {
@@ -196,7 +198,7 @@ async function doImport(img: File, hgt: File[], opts: MapOptions): Promise<strin
 
 /** Downloads a zipped map (one .img in a zip) and stores it as `imgName`, unpacking it on the way:
  *  the phone never holds the whole file in memory. */
-async function doDownload(url: string, imgName: string): Promise<string> {
+async function doDownload(url: string, imgName: string, opts: MapOptions): Promise<string> {
   progress('Connecting…');
   let res: Response;
   try {
@@ -241,11 +243,11 @@ async function doDownload(url: string, imgName: string): Promise<string> {
     progress('Checking map file…');
     const map = await GarminMap.open(new BlobSource(await (await dir.getFileHandle('map.img')).getFile()));
     return { version: 1, imgName, imgSize: entry.size, imgLastModified: lastModified, hgtNames: [], hasOverview: false, bounds: map.bounds };
-  }, {});
+  }, opts);
 }
 
 /** Writes a new map into a fresh directory (`fill` writes its files and returns its meta), records
- *  the choices made for it and makes it the current map. Other maps stay. A failure removes the
+ *  the choices made for it and makes it the current map (unless `opts.current` is false). Other maps stay. A failure removes the
  *  new directory; afterwards unfinished leftovers of earlier imports are removed. Resolves to the
  *  new directory's name (the map's id). */
 async function storeMap(fill: (dir: FileSystemDirectoryHandle) => Promise<StoredMeta>, opts: MapOptions): Promise<string> {
@@ -268,7 +270,7 @@ async function storeMap(fill: (dir: FileSystemDirectoryHandle) => Promise<Stored
     });
   }
   // The new map is complete; showing it is a pointer away.
-  await writeSmall(root, POINTER, encode({ dir: name }));
+  if (opts.current !== false) await writeSmall(root, POINTER, encode({ dir: name }));
   progress('Cleaning up…');
   await removeLeftovers(root, name).catch((err) => console.warn('cleanup', err));
   return name;
@@ -383,7 +385,7 @@ self.onmessage = async (e: MessageEvent) => {
   try {
     let result: unknown;
     if (msg.type === 'import') result = await doImport(msg.img as File, msg.hgt as File[], msg.opts as MapOptions);
-    else if (msg.type === 'download') result = await doDownload(msg.url as string, msg.imgName as string);
+    else if (msg.type === 'download') result = await doDownload(msg.url as string, msg.imgName as string, msg.opts as MapOptions);
     else if (msg.type === 'elevation') result = await storeElevation(msg.hgt as File[], msg.into as string | null);
     else if (msg.type === 'inspect') {
       const map = await GarminMap.open(new BlobSource(msg.img as File));

@@ -138,14 +138,18 @@ export interface ImportChoices {
   name?: string;
   /** The set to use: an id, null for none, undefined for automatic (new .hgt files make a set). */
   elevation?: string | null;
+  /** False: stored beside the current map, which stays current. */
+  current?: boolean;
 }
 
-/** Adds a map (and its .hgt files as a new elevation set) and makes it the current map; resolves to its id. */
+/** Adds a map (and its .hgt files as a new elevation set) and makes it the current map unless
+ *  `opts.current` is false; resolves to its id. */
 export const importFiles = (img: File, hgt: File[], onProgress: (m: string) => void, opts: ImportChoices = {}) =>
   runWorker<string>({ type: 'import', img, hgt, opts }, onProgress);
 
 /** Downloads a zipped map and adds it as `imgName`, like an import of that file; resolves to its id. */
-export const downloadMap = (url: string, imgName: string, onProgress: (m: string) => void) => runWorker<string>({ type: 'download', url, imgName }, onProgress);
+export const downloadMap = (url: string, imgName: string, onProgress: (m: string) => void, opts: ImportChoices = {}) =>
+  runWorker<string>({ type: 'download', url, imgName, opts }, onProgress);
 
 /** Stores .hgt files as a new elevation set, or adds them to set `into`; resolves to the set's id. */
 export const importElevation = (hgt: File[], into: string | null, onProgress: (m: string) => void) =>
