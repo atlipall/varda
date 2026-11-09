@@ -71,10 +71,10 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
-- **`overlays` branch (2026-11-09): KML overlays** (⋯ → Overlays; `web/src/overlays/`,
+- **Shipped 2026-11-09** (merged from `overlays`): KML overlays (⋯ → Overlays; `web/src/overlays/`,
   `web/src/app/overlaysPanel.ts`), for GPSmap.is 2026's OVERLAYS folder (drone no-fly zones,
   Reykjavík parking zones, artworks). Owner's choices: a separate panel (not part of the map
-  import), no tap action, per device (not synced). On the dev site for a phone test; not merged.
+  import), no tap action, per device (not synced). Merged before a phone test.
   Not read: GroundOverlay images, models, network links. The paused `map-layers` work (GeoJSON,
   Shapefile, HMS farms) is at commit 0559e92 if wanted in this panel.
 - **`embed` branch (2026-11-08): a tile server and widget for web pages**, `tile-server/` (its own
