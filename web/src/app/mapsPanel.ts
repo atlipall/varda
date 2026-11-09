@@ -367,12 +367,14 @@ export class MapsUi {
     return h('div', {}, remove, this.status());
   }
 
-  /** Stores a map (`store` resolves to its id) and shows it. */
+  /** Stores a map (`store` resolves to its id) and shows it behind the panel, which stays open on
+   *  the list with the new map ticked. */
   private storeMap(store: (onProgress: (m: string) => void) => Promise<string>): void {
     void this.act(async () => {
       await requestPersistence().catch(() => false); // best effort: never block an import on it
       await this.host.add(() => store((m) => this.progress(m)));
-    });
+      this.view = { kind: 'list' };
+    }, 'Map added.');
   }
 
   private addMap(file: File): void {

@@ -158,8 +158,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     },
     switchTo: (id) => switchTo(id, true),
     refresh: (without) => refresh(without),
-    // A map being added: shown here once stored, the panel put away so the map and its note are seen.
-    add: (store) => addMap(store).then(() => maps.showPanel(false)),
+    add: (store) => addMap(store), // the panel stays open, the added map ticked
     removeMap: (id) => removeOne(id),
     changed: (l) => showLabels(l),
   });
@@ -418,11 +417,10 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
       throw err;
     }
     // Stored, and current: if it won't open, the map shown before stays current too.
-    const { lib: l } = await show(id).catch(async (err) => {
+    await show(id).catch(async (err) => {
       await setCurrent(before.stored.id).catch(() => {});
       throw err;
     });
-    noteSwitch(l, id, before.stored.id);
   });
   /** Says which map is shown now, with Undo back to `from`, for 8 s. */
   const noteSwitch = (l: Library, id: string, from: string) => {

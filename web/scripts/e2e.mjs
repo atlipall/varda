@@ -1454,14 +1454,17 @@ try {
   if (!/Iceland GPSmap\.is 2024\.21 Detailed/.test(panelText) || !/3″ elevation · 48 files/.test(panelText) || !/used by 1 map/.test(panelText)) fail(`maps panel: ${panelText}`);
 
   // 7. A second map from "Add a map" (the file browser): kept beside the first, shown in place with
-  //    the stored set (it covers the map), named after its file.
+  //    the stored set (it covers the map), named after its file. The panel stays open with it ticked.
   const g0 = await tileGen();
   const t1 = Date.now();
   await (await page.$('#maps-add-input')).uploadFile(IMG2);
-  await page.waitForSelector('#map-note:not([hidden])', { timeout: 600_000 }).catch(async () => fail(`adding a map: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
+  await page.waitForFunction(() => /Map added/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 })
+    .catch(async () => fail(`adding a map: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
   console.log(`adding a map took ${((Date.now() - t1) / 1000).toFixed(1)} s`);
-  if (!(await page.$('#maps-panel[hidden]'))) fail('the Maps panel stayed open over the added map');
-  if (!/Focused/.test(await page.$eval('#map-note', (e) => e.innerText))) fail('the note does not name the added map');
+  if (await page.$('#maps-panel[hidden]')) fail('the Maps panel closed after adding a map');
+  if (!(await page.$('#map-note[hidden]'))) fail('a switch note shown after adding a map');
+  const ticked = await page.$$eval('#maps-panel .map-row', (rs) => rs.filter((r) => r.querySelector('[aria-checked="true"]')).map((r) => r.textContent));
+  if (ticked.length !== 1 || !/Focused/.test(ticked[0])) fail(`the added map is not ticked: ${JSON.stringify(ticked)}`);
   const two = await opfs();
   console.log('OPFS with two maps:', JSON.stringify(two));
   if (mapDirs(two).length !== 2 || setDirs(two).length !== 1 || two.pointer.dir === before.pointer.dir) fail(`expected two maps and one set: ${JSON.stringify(two)}`);
