@@ -273,7 +273,7 @@
       #map .locate-button.unavailable { opacity: 0.45; }
       #map .height-pill { padding: 3px 10px; border-radius: 999px; background: #fff; box-shadow: 0 1px 4px #0003; font: 600 calc(13 * var(--px))/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); }
       /* Tracks panel (⋯ → Tracks): below the top row, scrolls when long. */
-      #tracks, #saved, #photos, #sync-panel, #diag-panel, #settings, #map-picker, #maps-panel { position: absolute; z-index: 4; top: calc(var(--top) + var(--btn) + 6px); left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--gap)); max-width: 420px; max-height: calc(100% - var(--top) - var(--btn) - 90px); overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px 12px; background: #fff; }
+      #tracks, #saved, #photos, #sync-panel, #diag-panel, #settings, #map-picker, #maps-panel { position: absolute; z-index: 4; top: calc(var(--top) + var(--btn) + 6px); left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--gap)); max-width: 420px; margin: 0 auto; max-height: calc(100% - var(--top) - var(--btn) - 90px); overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px 12px; background: #fff; }
       .tracks-head { display: flex; align-items: center; justify-content: space-between; }
       /* Several maps (⋯ → Maps, and the map button's picker): rows with a radio or a tick, details
          one step in, the elevation sets below the maps. */
