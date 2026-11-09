@@ -4,15 +4,15 @@ import { parseGpx } from '../gpx/parse';
 import { climb, formatStats, summarize } from '../gpx/stats';
 import { deleteTrack, listTracks, putTrack, type StoredTrack } from '../gpx/store';
 import { noteDeleted } from '../saved/deleted';
+import { newId } from '../saved/saved';
 import { editName, renameButton } from '../ui/rename';
+import { deleteButton, eyeButton, fitClearOf } from './listButtons';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 /** Points at least this far apart (m) are sampled when filling in heights from the elevation files. */
 const HEIGHT_SAMPLE_M = 25;
 const HEIGHT_SAMPLE_MAX = 4000;
-/** A delete button asks "Delete?" and needs a second tap within this time (ms). */
-const CONFIRM_MS = 3000;
 
 const approxMetres = (a: { lon: number; lat: number }, b: { lon: number; lat: number }) =>
   Math.hypot((b.lon - a.lon) * Math.cos((a.lat * Math.PI) / 180), b.lat - a.lat) * 111_195;
@@ -26,7 +26,6 @@ function sample<P extends { lon: number; lat: number }>(points: P[], spacing: nu
   return out;
 }
 
-const TRASH = '<svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 /**
  * The Tracks panel (⋯ → Tracks): imports GPX files, keeps them on the device, draws the visible
@@ -98,7 +97,7 @@ export class TracksPanel {
    *  `id`: one of its own (a recorded trip's, so the same trip is never kept twice). */
   async addTrack(t: { id?: string; name: string; gpx: StoredTrack['gpx']; route?: StoredTrack['route'] }): Promise<StoredTrack> {
     const track: StoredTrack = {
-      id: t.id ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      id: t.id ?? newId(),
       name: t.name,
       color: nextColor(this.tracks),
       visible: true,
@@ -123,7 +122,7 @@ export class TracksPanel {
       try {
         const gpx = parseGpx(await file.text());
         const track: StoredTrack = {
-          id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          id: newId(),
           name: gpx.name ?? gpx.lines.find((l) => l.name)?.name ?? file.name.replace(/\.gpx$/i, ''),
           color: nextColor(this.tracks),
           visible: true,
@@ -173,9 +172,7 @@ export class TracksPanel {
 
   /** Fits the track in view, keeping it clear of this panel while it is open. */
   zoomTo(t: StoredTrack): void {
-    const top = this.panel.hidden ? 60 : this.panel.getBoundingClientRect().bottom - this.map.getContainer().getBoundingClientRect().top + 30;
-    const room = this.map.getContainer().clientHeight - top - 60;
-    this.map.fitBounds(trackBounds(t), { padding: { top: room > 120 ? top : 60, bottom: 60, left: 40, right: 40 }, maxZoom: 15, duration: 800 });
+    fitClearOf(this.map, this.panel, trackBounds(t), 15);
   }
 
   private refresh(): void {
@@ -208,34 +205,8 @@ export class TracksPanel {
       if (matchMedia('(pointer: coarse)').matches) this.show(false);
       this.onOpen?.(t);
     };
-    const eye = document.createElement('button');
-    eye.type = 'button';
-    eye.className = 'track-eye';
-    eye.setAttribute('aria-pressed', String(t.visible));
-    eye.setAttribute('aria-label', t.visible ? `Hide ${t.name}` : `Show ${t.name}`);
-    eye.innerHTML = t.visible
-      ? '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>'
-      : '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2" opacity=".45"/><path d="M3 3l18 18" stroke="currentColor" stroke-width="2"/></svg>';
-    eye.onclick = () => void this.setVisible(t, !t.visible);
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'track-delete';
-    del.setAttribute('aria-label', `Delete ${t.name}`);
-    del.innerHTML = TRASH;
-    let timer = 0;
-    del.onclick = () => {
-      if (!del.classList.contains('confirm')) {
-        del.classList.add('confirm');
-        del.textContent = 'Delete?';
-        timer = window.setTimeout(() => {
-          del.classList.remove('confirm');
-          del.innerHTML = TRASH;
-        }, CONFIRM_MS);
-        return;
-      }
-      clearTimeout(timer);
-      void this.remove(t);
-    };
+    const eye = eyeButton(t.name, t.visible, () => void this.setVisible(t, !t.visible));
+    const del = deleteButton(t.name, () => void this.remove(t));
     const rename = renameButton(t.name, () =>
       editName(li, t.name, (name) => void this.rename(t, name), () => li.replaceWith(this.row(t))),
     );
