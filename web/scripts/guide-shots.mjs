@@ -11,6 +11,8 @@ const WEB = fileURLToPath(new URL('..', import.meta.url));
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const DATA = REPO + 'map-files/GPSmap.is 2024.21 Android/';
 const IMG = DATA + 'MAPS - Add content to MAPFILES folder/Iceland GPSmap.is 2024.21 Detailed.img';
+/** A second map (the guide's "More than one map"). */
+const IMG2 = DATA + 'MAPS - Add content to MAPFILES folder/Iceland GPSmap.is 2024.21 Focused.img';
 const HGT_DIR = DATA + 'HILLSHADE - Add content to DEM folder/';
 const OUT = WEB + 'site/images/';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -149,6 +151,26 @@ try {
   await tap('#menu-button');
   await tap('#sync-open');
   await shot('sync');
+  await tap('#sync-close');
+
+  // More than one map: a second one added from ⋯ → Maps (it opens in place), then the map button's
+  // picker over Landmannalaugar, and the Maps panel.
+  await tap('#menu-button');
+  await tap('#maps-open');
+  await page.waitForSelector('#maps-panel:not([hidden]) #maps-add');
+  await (await page.$('#maps-add-input')).uploadFile(IMG2);
+  await page.waitForSelector('#map-note:not([hidden])', { timeout: 600_000 });
+  await page.waitForFunction(() => document.querySelector('#map-note').hidden, { timeout: 15_000 }); // the note goes after 8 s
+  await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
+  await view([-19.06, 63.985], 11.5);
+  await tap('#maps-button');
+  await page.waitForSelector('#map-picker:not([hidden]) .seg');
+  await shot('maps-picker');
+  await tap('#map-picker .close');
+  await tap('#menu-button');
+  await tap('#maps-open');
+  await page.waitForSelector('#maps-panel:not([hidden]) .storage .bar');
+  await shot('maps');
 } finally {
   await browser.close();
   await new Promise((r) => server.httpServer.close(r));
