@@ -15,6 +15,8 @@ export interface OpenMeta {
   typ: Uint8Array | null;
   tileIds: string[];
   demBounds: [number, number, number, number] | null;
+  /** The last zoom terrain tiles are worth asking for at (null without elevation files). */
+  demMaxZoom: number | null;
   /** The map's name from the IMG header. */
   description: string;
 }
@@ -156,8 +158,8 @@ export class TilePool {
     const live = this.live();
     if (!live.length) throw new Error('no workers available');
     const results = await Promise.all(live.map((w) => this.call(w, { type: 'open', ...this.payload })));
-    const { bounds, typ, tileIds, demBounds, description } = results[0];
-    return { bounds, typ, tileIds, demBounds, description };
+    const { bounds, typ, tileIds, demBounds, demMaxZoom, description } = results[0];
+    return { bounds, typ, tileIds, demBounds, demMaxZoom, description };
   }
 
   /** Neighbouring tiles go to the same worker so its subdivision cache is reused. `signal`, when

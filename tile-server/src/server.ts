@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import type { StyleSpecification } from 'maplibre-gl';
-import { DEM_MAX_ZOOM, DEM_TILE_SIZE, MAX_ZOOM, MIN_ZOOM } from '../../web/src/map/zoom';
+import { DEM_TILE_SIZE, MAX_ZOOM, MIN_ZOOM } from '../../web/src/map/zoom';
 import { buildStyle } from '../../web/src/style/buildStyle';
 import { demoPage } from './demo';
 import type { ServedMap } from './maps';
@@ -160,7 +160,7 @@ export function createHandler(maps: Map<string, ServedMap>, opts: ServerOptions)
       sprite: `${at}/sprite?v=${m.version}`,
       bounds: m.map.bounds,
       ...(m.credit ? { attribution: m.credit } : {}),
-      ...(terrain ? { dem: `${at}/terrain/{z}/{x}/{y}.png?v=${m.terrainVersion}`, demBounds: terrain } : {}),
+      ...(terrain ? { dem: `${at}/terrain/{z}/{x}/{y}.png?v=${m.terrainVersion}`, demBounds: terrain, demMaxZoom: m.terrainMaxZoom } : {}),
     });
     return { ...style, name: m.name };
   };
@@ -188,7 +188,7 @@ export function createHandler(maps: Map<string, ServedMap>, opts: ServerOptions)
     }
     if ((match = TERRAIN.exec(rest))) {
       if (!m.terrainBounds) throw new HttpError(404, 'this map has no terrain');
-      const [z, x, y] = tileXY(match, 0, DEM_MAX_ZOOM);
+      const [z, x, y] = tileXY(match, 0, m.terrainMaxZoom);
       const body = await tiles.get(`${m.id}/terrain/${z}/${x}/${y}`, async () => new Body(encodePng(DEM_TILE_SIZE, DEM_TILE_SIZE, await m.terrainTile(z, x, y)), TYPES['.png']));
       return { body, maxAge: DAY };
     }

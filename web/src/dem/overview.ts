@@ -1,5 +1,5 @@
 import { ImgError } from '../img/bytes';
-import { HGT_SIZE, HGT_STEP } from './hgt';
+import { HGT_STEP, hgtSample } from './hgt';
 
 /** A decimated mosaic: sample (r, c) is at lat = north - r*step/1200, lon = west + c*step/1200. */
 export interface Overview {
@@ -40,12 +40,16 @@ export class OverviewBuilder {
     this.o = { step, west: this.westMin, north: this.southMax + 1, rows, cols, data: new Int16Array(rows * cols) };
   }
 
-  add(south: number, west: number, samples: Int16Array): void {
+  /** `bytes` is one whole .hgt file of `fileStep` samples per degree (1200, or 3600 for 1″); only
+   *  the samples the overview keeps are decoded. */
+  add(south: number, west: number, bytes: Uint8Array, fileStep = HGT_STEP): void {
     const { step, cols, data } = this.o;
     const r0 = ((this.southMax - south) * HGT_STEP) / step;
     const c0 = ((west - this.westMin) * HGT_STEP) / step;
+    const k = (step * fileStep) / HGT_STEP; // file samples between overview samples
+    const size = fileStep + 1;
     for (let r = 0; r <= HGT_STEP / step; r++) {
-      for (let c = 0; c <= HGT_STEP / step; c++) data[(r0 + r) * cols + c0 + c] = samples[r * step * HGT_SIZE + c * step];
+      for (let c = 0; c <= HGT_STEP / step; c++) data[(r0 + r) * cols + c0 + c] = hgtSample(bytes, (r * k * size + c * k) * 2);
     }
   }
 

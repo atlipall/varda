@@ -6,6 +6,8 @@ export const MAX_ZOOM = 14;
 export const DEM_TILE_SIZE = 256;
 export const DEM_MIN_ZOOM = 5;
 export const DEM_MAX_ZOOM = 11;
+/** With 1″ (HD) elevation files: zoom 11's pixels are about 2.5″ apart, so one zoom more shows their detail. */
+export const DEM_HD_MAX_ZOOM = 12;
 /** Line types for roads and tracks (Garmin 0x01-0x13; GPSmap.is puts the F-roads at 0x0d, 0x11-0x13). */
 export const isRoadType = (t: number) => t >= 0x01 && t <= 0x13;
 /** From this zoom up to ROADS_LEVEL_ZOOM, tiles take their roads from ROADS_LEVEL_ZOOM's level:

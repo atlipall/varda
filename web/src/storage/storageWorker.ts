@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { decodeHgt, HGT_BYTES, parseHgtName } from '../dem/hgt';
+import { HGT_SIZE_ERROR, hgtStep, onePerSquare, parseHgtName } from '../dem/hgt';
 import { encodeOverview, OverviewBuilder } from '../dem/overview';
 import { ImgError } from '../img/bytes';
 import { BlobSource } from '../img/source';
@@ -64,17 +64,17 @@ async function removeDir(root: FileSystemDirectoryHandle, name: string): Promise
 async function doImport(img: File, hgt: File[]): Promise<void> {
   progress('Checking map file…');
   await GarminMap.open(new BlobSource(img)); // throws a tile-named ImgError for locked/corrupt maps
-  const parsed = hgt
-    .map((f) => {
+  // One file per 1° square (the HD one where both the normal and HD hillshade were picked), sorted
+  // by name so tiles are added to the overview in the same order as the Python pipeline.
+  const parsed = onePerSquare(
+    hgt.map((f) => {
       const p = parseHgtName(f.name);
       if (!p) throw new ImgError(`${f.name}: not an SRTM .hgt file name (expected e.g. n64w019.hgt)`);
-      if (f.size !== HGT_BYTES) throw new ImgError(`${f.name}: not a 1201×1201 SRTM3 tile (${f.size} bytes)`);
-      return { file: f, name: f.name.toLowerCase(), ...p };
-    })
-    // Sorted by name so tiles are added to the overview in the same order as the Python
-    // pipeline and the Dem class, which both apply files in name order (shared edges are
-    // "last write wins").
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      const step = hgtStep(f.size);
+      if (!step) throw new ImgError(`${f.name}: ${HGT_SIZE_ERROR} (${f.size} bytes)`);
+      return { file: f, name: f.name.toLowerCase(), ...p, step };
+    }),
+  );
   // Built before copying anything so an oversized elevation extent fails up front.
   const builder = parsed.length ? new OverviewBuilder(parsed) : null;
 
@@ -93,7 +93,7 @@ async function doImport(img: File, hgt: File[]): Promise<void> {
       for (const [i, p] of parsed.entries()) {
         const bytes = new Uint8Array(await p.file.arrayBuffer());
         await writeBytes(demDir, p.name, async (h) => void (await h.write(bytes, { at: 0 })));
-        builder.add(p.south, p.west, decodeHgt(bytes));
+        builder.add(p.south, p.west, bytes, p.step);
         progress(`Copying elevation ${i + 1}/${parsed.length}`);
       }
       const ov = encodeOverview(builder.finish());

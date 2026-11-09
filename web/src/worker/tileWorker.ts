@@ -80,6 +80,7 @@ self.onmessage = async (e: MessageEvent) => {
         typ: m.typ,
         tileIds: m.tiles.map((t) => t.id),
         demBounds: dem?.bounds ?? null,
+        demMaxZoom: dem?.maxZoom ?? null,
         description: m.description,
       });
     } else if (msg.type === 'tile') {

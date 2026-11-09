@@ -138,7 +138,7 @@ function mountViewer(stored: Stored, pool: TilePool, meta: OpenMeta, opts: Viewe
   const { style, images } = buildStyle(typ, {
     tiles: 'garmin://{z}/{x}/{y}',
     glyphs,
-    ...(meta.demBounds ? { dem: 'dem://{z}/{x}/{y}', demBounds: meta.demBounds } : {}),
+    ...(meta.demBounds ? { dem: 'dem://{z}/{x}/{y}', demBounds: meta.demBounds, demMaxZoom: meta.demMaxZoom ?? undefined } : {}),
   });
   const [w, s, e, n] = meta.bounds;
   // Where the app was last time (iOS may close it in the background or when memory runs short).
