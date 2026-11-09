@@ -71,6 +71,13 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
+- **`one-maps-panel` branch (2026-11-09), on the development site:** one Maps panel instead of the
+  map button's picker plus ⋯ → Maps (mockup `mockups/one-maps-panel.html`, checked against Apple's
+  HIG). Owner's choices: tapping a map or an elevation set only ticks it (`pick` in `MapsUi`);
+  **Apply** (dimmed until something changed) shows it, ✕ drops the ticks; adding a map ticks it;
+  ⓘ (not ›) opens details; hillshading is a ticked list with a **None** row (tapping the ticked set
+  again also gives None); one **Add…** button for .img and .hgt; the map button always shown; no
+  Undo after switching. Waiting for the owner's phone test, then merge.
 - **Shipped 2026-11-09** (merged from `multiple-maps`): several maps, shared hillshading. Mockup
   `mockups/multiple-maps.html`, spec and plan in `docs/superpowers/`. Owner's choices: switch from a
   map button under ⋯ *and* ⋯ → Maps; elevation kept as named sets any map can use (each map takes

@@ -22,8 +22,8 @@ export interface MapsHost {
   /** Draws the map shown again when its elevation set should change (a choice, a set added or
    *  removed; `without`: a set about to be removed). */
   refresh(without?: string): Promise<void>;
-  /** Adds a map (`store` copies it and resolves to its id). With a map open, that one stays shown;
-   *  with none, the new one is shown. Rejects when it couldn't be added. */
+  /** Adds a map (`store` copies it and resolves to its id); the map shown, if any, stays. Rejects
+   *  when it couldn't be added. */
   add(store: () => Promise<string>): Promise<void>;
   /** Removes a map (another one is shown when it was this one; none left: the empty panel). */
   removeMap(id: string): Promise<void>;
@@ -33,6 +33,7 @@ export interface MapsHost {
 
 const LAYERS_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3 12.5l9 5 9-5M3 16.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
 const CLOSE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
+const INFO_ICON = '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="7.6" r="1.3" fill="currentColor"/><path d="M12 11v6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 const BACK_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 export const formatBytes = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`);
@@ -58,26 +59,26 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<Record<
   return e;
 }
 
-/** A row: name and a line under it, with something before (radio, tick) and after (chevron). */
-function row(name: string, sub: string, opts: { lead?: El; trail?: El; checked?: boolean; role?: string; current?: boolean } = {}): HTMLButtonElement {
-  const b = h('button', { type: 'button', class: 'row', role: opts.role, ...(opts.checked !== undefined ? { 'aria-checked': String(opts.checked) } : {}), ...(opts.current ? { 'aria-current': 'true' } : {}) },
+/** A row: name and a line under it, with something before (a tick) and after (chevron). */
+function row(name: string, sub: Array<Node | string>, opts: { lead?: El; trail?: El; checked?: boolean } = {}): HTMLButtonElement {
+  const checked = opts.checked === undefined ? {} : { role: 'radio', 'aria-checked': String(opts.checked) };
+  return h('button', { type: 'button', class: 'row', ...checked },
     opts.lead ?? null,
-    h('span', { class: 't' }, h('span', { class: 'n', text: name }), sub ? h('span', { class: 's', text: sub }) : null),
+    h('span', { class: 't' }, h('span', { class: 'n', text: name }), sub.length ? h('span', { class: 's' }, ...sub) : null),
     opts.trail ?? null);
-  return b;
 }
-const radio = () => h('span', { class: 'radio', 'aria-hidden': 'true' });
 const chev = () => h('span', { class: 'chev', 'aria-hidden': 'true', text: '›' });
-const tick = (on: boolean) => h('span', { class: 'tick', 'aria-hidden': 'true', text: on ? '✓' : '' });
+/** A label in the middle of a row's line ("… · covers this map"). */
+const lower = (s: string) => s.replace(/^./, (x) => x.toLowerCase());
+const tick = () => h('span', { class: 'tick', 'aria-hidden': 'true', text: '✓' });
 
-/** The map button (under ⋯; shown once there's a choice to make). */
+/** The map button, top right under ⋯: opens the Maps panel. */
 export class MapsButton implements maplibregl.IControl {
   readonly container = h('div', { class: 'maplibregl-ctrl maplibregl-ctrl-group' });
-  readonly button = h('button', { type: 'button', id: 'maps-button', class: 'maps-button', 'aria-label': 'Choose map', title: 'Choose map', 'aria-controls': 'map-picker', 'aria-expanded': 'false', html: LAYERS_ICON });
+  readonly button = h('button', { type: 'button', id: 'maps-button', class: 'maps-button', 'aria-label': 'Maps', title: 'Maps', 'aria-controls': 'maps-panel', 'aria-expanded': 'false', html: LAYERS_ICON });
 
   constructor() {
     this.container.append(this.button);
-    this.container.hidden = true;
   }
 
   onAdd(): HTMLElement {
@@ -91,6 +92,13 @@ export class MapsButton implements maplibregl.IControl {
 
 type View = { kind: 'list' } | { kind: 'map'; id: string; renaming?: boolean } | { kind: 'set'; id: string; renaming?: boolean };
 
+/** The map ticked in the list and the elevation set ticked for it (null: none). Nothing is shown
+ *  or saved until Apply. */
+interface Pick {
+  map: string;
+  set: string | null;
+}
+
 /** With no map open: the panel is the whole screen (the first start, or a map that won't open). */
 export interface Standalone {
   /** Why no map is open, shown under the title. */
@@ -103,43 +111,43 @@ export interface Standalone {
   leftovers?: boolean;
 }
 
-/** The map picker (from the map button) and ⋯ → Maps: switching maps, their hillshading, adding,
- *  renaming and removing maps and elevation sets. Also the first screen, before there's a map. */
+/** The Maps panel (the map button, ⋯ → Maps, Settings' map row): a map and its hillshading are
+ *  ticked and shown with Apply; maps and elevation files are added, renamed and removed. Also the
+ *  first screen, before there's a map. */
 export class MapsUi {
   readonly mapsButton = new MapsButton();
-  private readonly picker = document.getElementById('map-picker')!;
   private readonly panel = document.getElementById('maps-panel')!;
   private view: View = { kind: 'list' };
   private lib: Library | null = null;
+  /** `lib` as last read, to tell whether a read changed anything. */
+  private libJson = '';
+  /** The browser's storage figures, read when what's stored changes (not on every tap). */
+  private estimate: StorageEstimate | null = null;
+  private pick: Pick | null = null;
   private busy = false;
   private message = '';
   private messageIsError = false;
 
   constructor(private readonly host: MapsHost, private readonly standalone: Standalone | null = null) {
     this.panel.classList.toggle('standalone', !!standalone);
-    this.mapsButton.button.onclick = () => this.showPicker(this.picker.hidden !== false);
-    for (const el of [this.picker, this.panel]) {
-      el.addEventListener('keydown', (e) => {
-        if (e.key !== 'Escape') return;
-        if (el === this.picker) this.showPicker(false);
-        else if (!this.standalone) this.showPanel(false); // nothing behind the standalone panel
-      });
-    }
-    acceptDrops(this.panel, (files) => this.dropped(files), extensions('img', 'hgt'));
+    this.mapsButton.button.onclick = () => this.showPanel(this.panel.hidden !== false);
+    // Nothing behind the standalone panel to go back to.
+    this.panel.addEventListener('keydown', (e) => e.key === 'Escape' && !this.standalone && this.showPanel(false));
+    acceptDrops(this.panel, (files) => this.take(files), extensions('img', 'hgt'));
   }
 
-  /** Files dropped on the panel: a map (with any elevation files dropped with it as its hillshading),
-   *  or elevation files alone, added to the set shown or stored as a new one. */
-  private dropped(files: File[]): void {
+  /** Files picked with Add… or dropped on the panel: a map (with any elevation files given with it
+   *  as its hillshading), or elevation files alone, added to the set shown or stored as a new one. */
+  private take(files: File[]): void {
     const img = extensions('img');
+    const hgt = extensions('hgt');
+    if (this.stillBusy()) return;
+    if (files.some((f) => !img(f.name) && !hgt(f.name))) return this.showError('Choose a map (.img file) or elevation files (.hgt).');
     const imgs = files.filter((f) => img(f.name));
-    const hgt = files.filter((f) => !img(f.name));
-    if (imgs.length > 1) {
-      if (!this.stillBusy()) this.showError('Drop one map (.img file) at a time.');
-      return;
-    }
-    if (imgs.length) this.storeMap((onProgress, opts) => importFiles(imgs[0], hgt, onProgress, opts));
-    else this.addElevation(hgt, this.view.kind === 'set' ? this.view.id : null);
+    const hgts = files.filter((f) => hgt(f.name));
+    if (imgs.length > 1) return this.showError('Add one map (.img file) at a time.');
+    if (imgs.length) this.storeMap((onProgress, opts) => importFiles(imgs[0], hgts, onProgress, opts));
+    else this.addElevation(hgts, this.view.kind === 'set' ? this.view.id : null);
   }
 
   private showError(text: string): void {
@@ -148,41 +156,65 @@ export class MapsUi {
     this.redraw();
   }
 
-  /** Reads the library again and shows it wherever it's open. */
-  async reload(): Promise<Library> {
+  /** Reads the library again and draws the panel again if anything in it changed (a redraw for
+   *  nothing would take the focus from a row or a name being typed). */
+  async reload(opts: { force?: boolean; then?: (lib: Library) => void } = {}): Promise<Library> {
     const lib = await this.host.library();
+    const json = JSON.stringify(lib);
+    const same = json === this.libJson;
     this.lib = lib;
-    this.host.changed(lib); // labels elsewhere, and the map button shown once there's a choice
+    this.libJson = json;
+    if (!same) this.host.changed(lib); // labels elsewhere
+    opts.then?.(lib);
+    // A ticked map or set that's gone: back to what's shown.
+    if (this.pick && !lib.maps.some((m) => m.id === this.pick!.map)) this.pick = null;
+    if (this.pick?.set && !lib.sets.some((s) => s.id === this.pick!.set)) this.pick.set = this.effectiveId(this.pick.map);
+    this.pick ??= this.shownPick();
+    if (same && !opts.force) return lib;
     this.redraw();
+    void this.readStorage();
     return lib;
   }
 
-  /** Draws whichever is open again; a name being typed isn't drawn over. */
+  /** Draws the panel again if it's open; a name being typed isn't drawn over. */
   private redraw(): void {
-    if (!this.picker.hidden) this.renderPicker();
     if (!this.panel.hidden && !('renaming' in this.view && this.view.renaming)) this.renderPanel();
-  }
-
-  showPicker(open: boolean): void {
-    this.picker.hidden = !open;
-    this.mapsButton.button.setAttribute('aria-expanded', String(open));
-    if (!open) return;
-    this.panel.hidden = true;
-    this.message = '';
-    this.renderPicker();
-    this.picker.querySelector<HTMLElement>('h2')?.focus();
-    void this.reload();
   }
 
   showPanel(open: boolean, view: View = { kind: 'list' }): void {
     this.panel.hidden = !open;
+    this.mapsButton.button.setAttribute('aria-expanded', String(open));
     if (!open) return;
-    this.showPicker(false);
     this.view = view;
     this.message = '';
+    this.pick = this.shownPick(); // ticks not applied last time are gone
     this.renderPanel();
     this.panel.querySelector<HTMLElement>('h2')?.focus();
     void this.reload();
+  }
+
+  /** The map shown and its hillshading, ticked (none when no map is open). */
+  private shownPick(): Pick | null {
+    const cur = this.cur;
+    return cur.id ? { map: cur.id, set: cur.set?.id ?? null } : null;
+  }
+
+  /** The set map `id` draws from now (the map shown: the one it was drawn with). */
+  private effective(id: string): SetInfo | null {
+    const cur = this.cur;
+    if (id === cur.id) return cur.set;
+    const m = this.lib?.maps.find((x) => x.id === id);
+    return m && this.lib ? elevationFor(m, this.lib.sets) : null;
+  }
+
+  private effectiveId(id: string): string | null {
+    return this.effective(id)?.id ?? null;
+  }
+
+  /** Something ticked that isn't shown yet. */
+  private get pending(): boolean {
+    const p = this.pick;
+    return !!p && (p.map !== this.cur.id || p.set !== this.effectiveId(p.map));
   }
 
   /** Says so (and is true) while a change is still running. */
@@ -192,14 +224,17 @@ export class MapsUi {
     return true;
   }
 
-  /** Runs a change: one at a time, its error shown in the panel, then everything read again. */
-  private async act(what: () => Promise<void>, done?: string): Promise<void> {
+  /** Runs a change: one at a time, its error shown in the panel, then everything read again and
+   *  drawn (its message, at least). `after` sees what's stored after a change that worked and
+   *  returns its message. */
+  private async act(what: () => Promise<void>, after?: (lib: Library) => string | void): Promise<void> {
     if (this.stillBusy()) return;
     this.busy = true;
     this.message = '';
+    let ok = false;
     try {
       await what();
-      this.message = done ?? '';
+      ok = true;
       this.messageIsError = false;
     } catch (err) {
       this.message = err instanceof Error ? err.message : String(err);
@@ -207,7 +242,8 @@ export class MapsUi {
     } finally {
       this.busy = false;
     }
-    await this.reload().catch((err) => {
+    const then = ok && after ? (lib: Library) => void (this.message = after(lib) ?? '') : undefined;
+    await this.reload({ force: true, then }).catch((err) => {
       console.warn('maps', err);
       this.redraw();
     });
@@ -237,58 +273,21 @@ export class MapsUi {
     return h('p', { class: `note status${this.messageIsError ? ' error' : ''}`, role: 'status', text: this.message });
   }
 
-  private setFor(m: MapInfo): SetInfo | null {
-    return this.lib ? elevationFor(m, this.lib.sets) : null;
-  }
-
   /** The map shown and its set (an id matching no map when none is open). */
   private get cur(): { id: string; set: SetInfo | null } {
     return this.host.current() ?? { id: '', set: null };
   }
 
-  // ---- the picker ----
-
-  private renderPicker(): void {
-    const lib = this.lib;
-    const out: Array<Node> = [this.head('Map', 'map-picker-title', () => this.showPicker(false))];
-    if (lib) {
-      const cur = this.cur;
-      const at = this.host.center();
-      for (const m of lib.maps) {
-        const isCur = m.id === cur.id;
-        const set = isCur ? cur.set : this.setFor(m);
-        const sub = [hillshadingText(set), m.bounds && at && !contains(m.bounds, at) ? 'not where you are' : ''].filter(Boolean).join(' · ');
-        const r = row(m.name, sub, { role: 'menuitemradio', checked: isCur, trail: tick(isCur) });
-        r.onclick = () => isCur || void this.act(() => this.host.switchTo(m.id));
-        out.push(r);
-      }
-      const curMap = lib.maps.find((m) => m.id === cur.id);
-      const offered = lib.sets.filter((s) => !curMap?.bounds || coverage(s, curMap.bounds) > 0 || s.id === cur.set?.id);
-      if (curMap && (offered.length || cur.set)) {
-        out.push(h('h3', { text: 'Hillshading' }));
-        const seg = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Hillshading' });
-        for (const choice of [...offered, null]) {
-          const on = (choice?.id ?? null) === (cur.set?.id ?? null);
-          const b = h('button', { type: 'button', role: 'radio', 'aria-checked': String(on), text: choice ? choice.name : 'Off' });
-          b.onclick = () => on || !cur.id || void this.act(() => this.chooseElevation(cur.id, choice?.id ?? null));
-          seg.append(b);
-        }
-        out.push(seg);
-      }
-      out.push(this.status());
-      const manage = h('button', { type: 'button', class: 'item link', id: 'maps-manage', text: 'Manage maps…' });
-      manage.onclick = () => this.showPanel(true);
-      out.push(manage);
-    }
-    this.picker.replaceChildren(...out);
+  /** A row that ticks, with an ⓘ button for its details. */
+  private choice(name: string, sub: Array<Node | string>, on: boolean, select: () => void, details: (() => void) | null, cls: string): El {
+    const b = row(name, sub, { lead: tick(), checked: on });
+    b.onclick = select;
+    const info = details ? h('button', { type: 'button', class: 'info', 'aria-label': `Details for ${name}`, html: INFO_ICON }) : null;
+    if (info) info.onclick = details;
+    return h('div', { class: `split ${cls}` }, b, info);
   }
 
-  private async chooseElevation(mapId: string, choice: string | null): Promise<void> {
-    await changeChoices((c) => void ((c.maps[mapId] ??= {}).elevation = choice));
-    if (mapId === this.host.current()?.id) await this.host.refresh();
-  }
-
-  // ---- ⋯ → Maps ----
+  // ---- the panel ----
 
   private renderPanel(): void {
     const v = this.view;
@@ -310,6 +309,8 @@ export class MapsUi {
 
   private list(lib: Library, close: () => void): Node[] {
     const cur = this.cur;
+    const pick = this.pick;
+    const at = this.host.center();
     const out: Node[] = [this.head('Maps', 'maps-title', close)];
     if (this.standalone?.error) out.push(h('p', { class: 'note error', role: 'alert', text: this.standalone.error }));
     if (this.standalone?.unreadable) {
@@ -317,41 +318,85 @@ export class MapsUi {
       return out;
     }
     const first = !lib.maps.length;
-    if (first) out.push(h('p', { class: 'note intro', text: 'Add a Garmin map: its .img file, from this device or iCloud Drive. Maps and elevation files are stored on this device only.' }));
+    if (first) out.push(h('p', { class: 'note intro', text: 'Add a Garmin map (.img file) from this device or iCloud Drive, with elevation files (.hgt) for hillshading if you have them. Everything is stored on this device only.' }));
+    const maps = h('div', { role: 'radiogroup', 'aria-labelledby': 'maps-title' });
+    if (lib.maps.length) out.push(maps);
     for (const m of lib.maps) {
-      const isCur = m.id === cur.id;
-      const set = isCur ? cur.set : this.setFor(m);
-      const pick = h('button', { type: 'button', class: 'row pick', role: 'radio', 'aria-checked': String(isCur), 'aria-label': `Show ${m.name}` }, radio());
-      pick.onclick = () => isCur || void this.act(() => this.host.switchTo(m.id));
-      const sub = m.id === this.standalone?.failed ? "Couldn't be opened" : `${formatBytes(m.bytes)} · ${set ? `hillshading ${set.name}` : 'no hillshading'}`;
-      const open = row(m.name, sub, { trail: chev(), current: isCur });
-      open.onclick = () => this.go({ kind: 'map', id: m.id });
-      out.push(h('div', { class: 'split map-row' }, pick, open));
+      const on = m.id === pick?.map;
+      const set = on ? lib.sets.find((s) => s.id === pick!.set) ?? null : this.effective(m.id);
+      const sub: Array<Node | string> = [];
+      if (m.id === cur.id) sub.push(h('span', { class: 'shown', text: 'Shown' }));
+      sub.push(m.id === this.standalone?.failed ? "Couldn't be opened"
+        : [formatBytes(m.bytes), lower(hillshadingText(set)), m.bounds && at && !contains(m.bounds, at) ? 'not where you are' : ''].filter(Boolean).join(' · '));
+      maps.append(this.choice(m.name, sub, on, () => this.tickMap(m.id), () => this.go({ kind: 'map', id: m.id }), 'map-row'));
     }
-    out.push(this.filesButton('Add a map', 'maps-add', ([file]) => this.addMap(file), 'add', false));
-    const download = h('button', { type: 'button', class: 'item link', id: 'maps-download', text: 'Download the free map of Iceland' });
-    download.onclick = () => this.download();
-    out.push(download);
-    if (first) out.push(h('p', { class: 'note', text: 'Made from OpenStreetMap: roads, trails, places and contour lines, with routing (Freizeitkarte, 255 MB). Keep the app open while it downloads.' }));
-    out.push(h('h3', { text: 'Elevation for hillshading' }));
-    for (const s of lib.sets) {
-      const users = lib.maps.filter((m) => (m.id === cur.id ? cur.set : this.setFor(m))?.id === s.id).length;
-      const r = row(s.name, `${filesText(s.files.length)} · ${formatBytes(s.bytes)} · ${users ? `used by ${users} map${users === 1 ? '' : 's'}` : 'not used'}`, { trail: chev() });
-      r.classList.add('set-row');
-      r.onclick = () => this.go({ kind: 'set', id: s.id });
-      out.push(r);
-    }
-    if (!lib.sets.length) out.push(h('p', { class: 'note', text: 'Elevation files (.hgt) draw the hills’ shading and give heights along tracks.' }));
-    out.push(this.filesButton('Add elevation files', 'maps-add-elevation', (files) => this.addElevation(files, null)));
     out.push(this.status());
+    const ticked = lib.maps.find((m) => m.id === pick?.map);
+    if (ticked) {
+      out.push(h('h3', { id: 'hillshading-title', text: 'Hillshading' }));
+      if (lib.sets.length) {
+        const sets = h('div', { role: 'radiogroup', 'aria-labelledby': 'hillshading-title' });
+        for (const s of lib.sets) {
+          const sub = [formatBytes(s.bytes), ticked.bounds ? lower(coverageText(coverage(s, ticked.bounds))) : filesText(s.files.length)].join(' · ');
+          sets.append(this.choice(s.name, [sub], s.id === pick!.set, () => this.tickSet(s.id), () => this.go({ kind: 'set', id: s.id }), 'set-row'));
+        }
+        sets.append(this.choice('None', [], pick!.set === null, () => this.tickSet(null), null, 'set-none'));
+        out.push(sets);
+      } else out.push(h('p', { class: 'note', text: 'Elevation files (.hgt) draw the hills’ shading and give heights along tracks.' }));
+    }
+    out.push(this.filesButton('+ Add…', 'maps-add', (files) => this.take(files), first ? 'big' : 'add'));
+    out.push(h('p', { class: 'note', text: 'Maps (.img) and elevation files (.hgt), from this device or iCloud Drive.' }));
+    if (!lib.maps.some((m) => m.imgName === FREE_MAP_NAME)) {
+      const download = h('button', { type: 'button', class: 'add', id: 'maps-download', text: 'Download the free map of Iceland' });
+      download.onclick = () => this.download();
+      out.push(download);
+      if (first) out.push(h('p', { class: 'note', text: 'Made from OpenStreetMap: roads, trails, places and contour lines, with routing (Freizeitkarte, 255 MB). Keep the app open while it downloads.' }));
+    }
     if (lib.maps.length || lib.sets.length) {
       const usage = h('div', { class: 'storage' });
       out.push(usage);
-      void this.showStorage(usage, lib);
+      this.showStorage(usage, lib);
     }
     if (this.standalone && !onHomeScreen()) out.push(h('p', { class: 'note', id: 'home-hint', text: 'Tip: add this app to your Home Screen first (Share → Add to Home Screen) so your maps stay stored.' }));
     if (this.standalone?.leftovers) out.push(this.removeAll());
+    if (lib.maps.length) {
+      const apply = h('button', { type: 'button', class: 'big', id: 'maps-apply', text: 'Apply' });
+      apply.disabled = !this.pending;
+      apply.onclick = () => this.apply();
+      out.push(h('div', { class: 'apply' }, apply));
+    }
     return out;
+  }
+
+  /** Ticks a map, with the hillshading it has now. */
+  private tickMap(id: string): void {
+    this.pick = { map: id, set: this.effectiveId(id) };
+    this.message = '';
+    this.renderPanel();
+  }
+
+  /** Ticks a set for the ticked map; the ticked one again: none. */
+  private tickSet(id: string | null): void {
+    if (!this.pick) return;
+    this.pick.set = this.pick.set === id ? null : id;
+    this.message = '';
+    this.renderPanel();
+  }
+
+  /** Shows the ticked map with the ticked hillshading, saved as that map's choice, and closes. */
+  private apply(): void {
+    const p = this.pick;
+    if (!p || !this.pending) return;
+    void this.act(async () => {
+      // Saved only when it isn't what the map's choice gives already (an automatic choice stays
+      // automatic, following elevation files added later).
+      const m = this.lib?.maps.find((x) => x.id === p.map);
+      const stored = m && this.lib ? elevationFor(m, this.lib.sets)?.id ?? null : null;
+      if (p.set !== stored) await changeChoices((c) => void ((c.maps[p.map] ??= {}).elevation = p.set));
+      if (p.map !== this.cur.id) await this.host.switchTo(p.map); // standalone: the page starts again with it
+      else await this.host.refresh();
+      if (!this.standalone) this.showPanel(false);
+    });
   }
 
   /** Removes everything stored (data that doesn't make a map, or storage that can't be read). */
@@ -367,18 +412,17 @@ export class MapsUi {
     return h('div', {}, remove, this.status());
   }
 
-  /** Stores a map (`store` resolves to its id). With a map open it's only added to the list (the
-   *  panel stays open; the map shown stays); the first map is shown. */
+  /** Stores a map (`store` resolves to its id) beside the one shown, which stays, and ticks it. */
   private storeMap(store: (onProgress: (m: string) => void, opts: ImportChoices) => Promise<string>): void {
+    let id = '';
     void this.act(async () => {
       await requestPersistence().catch(() => false); // best effort: never block an import on it
-      await this.host.add(() => store((m) => this.progress(m), { current: !!this.standalone }));
+      await this.host.add(async () => (id = await store((m) => this.progress(m), { current: false })));
       this.view = { kind: 'list' };
-    }, 'Map added.');
-  }
-
-  private addMap(file: File): void {
-    this.storeMap((onProgress, opts) => importFiles(file, [], onProgress, opts));
+    }, (lib) => {
+      this.pick = { map: id, set: this.effectiveId(id) };
+      return `Added “${lib.maps.find((m) => m.id === id)?.name ?? 'the map'}”.`;
+    });
   }
 
   private download(): void {
@@ -397,8 +441,14 @@ export class MapsUi {
     this.panel.querySelector<HTMLElement>('.title')?.focus();
   }
 
-  private async showStorage(into: El, lib: Library): Promise<void> {
-    const est = await navigator.storage?.estimate?.().catch(() => null);
+  private async readStorage(): Promise<void> {
+    this.estimate = (await navigator.storage?.estimate?.().catch(() => null)) ?? null;
+    const into = this.panel.querySelector<HTMLElement>('.storage');
+    if (into && this.lib) this.showStorage(into, this.lib);
+  }
+
+  private showStorage(into: El, lib: Library): void {
+    const est = this.estimate;
     if (!est?.quota || est.usage == null) return;
     const mapBytes = lib.maps.reduce((n, m) => n + m.bytes, 0);
     const setBytes = lib.sets.reduce((n, s) => n + s.bytes, 0);
@@ -410,8 +460,8 @@ export class MapsUi {
   }
 
   /** A button that picks files and hands them on (a hidden input each, so iOS shows its picker). */
-  private filesButton(label: string, id: string, take: (files: File[]) => void, cls = 'item link', multiple = true): El {
-    const input = h('input', { type: 'file', ...(multiple ? { multiple: '' } : {}), hidden: '', id: `${id}-input` });
+  private filesButton(label: string, id: string, take: (files: File[]) => void, cls = 'item link'): El {
+    const input = h('input', { type: 'file', multiple: '', hidden: '', id: `${id}-input` });
     const b = h('button', { type: 'button', class: cls, id, text: label });
     b.onclick = () => this.stillBusy() || input.click();
     input.onchange = () => {
@@ -422,12 +472,21 @@ export class MapsUi {
     return h('div', {}, b, input);
   }
 
+  /** Stores elevation files as a new set (ticked when it covers the ticked map) or adds them to set
+   *  `into`. */
   private addElevation(files: File[], into: string | null): void {
+    let id = '';
     void this.act(async () => {
-      await importElevation(files, into, (m) => this.progress(m));
-      // A new set may now be the best one for the map shown; an added-to one has new files.
-      await this.host.refresh();
-    }, into ? 'Elevation files added.' : 'Elevation files stored.');
+      id = await importElevation(files, into, (m) => this.progress(m));
+      // An added-to set has new files: the map shown draws them.
+      if (into) await this.host.refresh();
+    }, (lib) => {
+      if (into) return 'Elevation files added.';
+      const s = lib.sets.find((x) => x.id === id);
+      const m = lib.maps.find((x) => x.id === this.pick?.map);
+      if (this.pick && s && m?.bounds && coverage(s, m.bounds) > 0) this.pick.set = id;
+      return 'Elevation files stored.';
+    });
   }
 
   /** The name field of Tracks and Saved places (an unchanged name or Escape cancels). */
@@ -446,9 +505,7 @@ export class MapsUi {
   private mapDetails(lib: Library, id: string, renaming: boolean, close: () => void, back: () => void): Node[] {
     const m = lib.maps.find((x) => x.id === id);
     if (!m) return [this.head('Maps', 'maps-title', close, back), h('p', { class: 'note', text: 'This map is no longer stored.' })];
-    const cur = this.cur;
-    const isCur = m.id === cur.id;
-    const set = isCur ? cur.set : this.setFor(m);
+    const set = this.effective(m.id);
     const out: Node[] = [this.head('', '', close, back)];
     if (renaming) {
       out.push(this.renameForm(m.name, (name) => this.act(async () => {
@@ -457,24 +514,7 @@ export class MapsUi {
       }), () => this.go({ kind: 'map', id })));
     } else out.push(h('h2', { class: 'title', tabindex: '-1', id: 'maps-title', text: m.name }));
     out.push(h('p', { class: 'note', text: [m.imgName, formatBytes(m.bytes), m.added ? `added ${dateText(m.added)}` : ''].filter(Boolean).join(' · ') }));
-    out.push(h('h3', { text: 'Hillshading' }));
-    const group = h('div', { role: 'radiogroup', 'aria-label': 'Hillshading' });
-    for (const s of [...lib.sets, null]) {
-      const on = (s?.id ?? null) === (set?.id ?? null);
-      const r = row(s ? s.name : 'Off', s && m.bounds ? coverageText(coverage(s, m.bounds)) : '', { lead: radio(), role: 'radio', checked: on });
-      r.onclick = () => on || void this.act(() => this.chooseElevation(m.id, s?.id ?? null));
-      group.append(r);
-    }
-    out.push(group);
-    if (!lib.sets.length) out.push(h('p', { class: 'note', text: 'No elevation files are stored. Add them in Maps.' }));
-    if (!isCur) {
-      const show = h('button', { type: 'button', class: 'item link', id: 'map-show', text: 'Show this map' });
-      show.onclick = () => void this.act(async () => {
-        await this.host.switchTo(m.id);
-        if (!this.standalone) this.showPanel(false); // standalone: the page is starting again with it
-      });
-      out.push(show);
-    }
+    out.push(h('p', { class: 'note', text: `${hillshadingText(set)}${m.id === this.cur.id ? ' · shown now' : ''}` }));
     const rename = h('button', { type: 'button', class: 'item', id: 'map-rename', text: 'Rename' });
     rename.onclick = () => this.go({ kind: 'map', id, renaming: true });
     const remove = h('button', { type: 'button', class: 'item danger', id: 'map-remove', text: `Remove from ${device()}` });
@@ -486,6 +526,7 @@ export class MapsUi {
         this.view = { kind: 'list' };
       });
     };
+    rename.style.marginTop = '10px';
     out.push(rename, remove, this.status());
     return out;
   }
@@ -494,7 +535,7 @@ export class MapsUi {
     const s = lib.sets.find((x) => x.id === id);
     if (!s) return [this.head('Maps', 'maps-title', close, back), h('p', { class: 'note', text: 'These elevation files are no longer stored.' })];
     const cur = this.cur;
-    const users = lib.maps.filter((m) => (m.id === cur.id ? cur.set : this.setFor(m))?.id === s.id);
+    const users = lib.maps.filter((m) => this.effective(m.id)?.id === s.id);
     const out: Node[] = [this.head('', '', close, back)];
     if (renaming) {
       out.push(this.renameForm(s.name, (name) => this.act(async () => {
@@ -507,7 +548,7 @@ export class MapsUi {
     out.push(h('h3', { text: 'Used by' }));
     if (!users.length) out.push(h('p', { class: 'note', text: 'No map uses these files now.' }));
     for (const m of users) {
-      const r = row(m.name, '', { trail: chev() });
+      const r = row(m.name, [], { trail: chev() });
       r.onclick = () => this.go({ kind: 'map', id: m.id });
       out.push(r);
     }

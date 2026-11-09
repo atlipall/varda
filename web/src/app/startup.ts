@@ -49,8 +49,8 @@ export async function startApp(): Promise<void> {
   }
 }
 
-/** The Maps panel on its own, with no map behind it: adding, showing or removing a map starts the
- *  app again with it. */
+/** The Maps panel on its own, with no map behind it: showing a map (Apply) starts the app again
+ *  with it. */
 function showMapsAlone(standalone: Standalone): void {
   const ui = new MapsUi({
     library: () => loadLibrary().catch(emptyLibrary),
@@ -61,10 +61,7 @@ function showMapsAlone(standalone: Standalone): void {
       location.reload();
     },
     refresh: async () => {},
-    add: async (store) => {
-      await store();
-      location.reload();
-    },
+    add: async (store) => void (await store()),
     removeMap: (id) => removeMap(id),
     changed: () => {},
   }, standalone);

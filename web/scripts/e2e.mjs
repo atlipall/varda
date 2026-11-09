@@ -75,18 +75,25 @@ try {
     req.onsuccess = () => { req.result.close(); resolve(); };
     req.onerror = () => reject(req.error);
   }));
-  // The first screen is the Maps panel on its own: the elevation files first (they stay in the
-  // panel), then the map, which opens.
+  // The first screen is the Maps panel on its own: the elevation files first (stored; there's no
+  // map to tick them for), then the map, which is ticked with the set covering it; Apply opens it.
   await page.waitForSelector('#maps-panel.standalone:not([hidden]) #maps-add', { timeout: 30_000 });
   if (await page.$('#maps-panel .close')) fail('the first screen can be closed');
+  if (await page.$('#maps-apply')) fail('Apply shown with no map');
   if (await page.$('#remove-stored')) fail('"Remove stored data" offered with nothing stored');
   await page.screenshot({ path: `${OUT}first-start.png` });
   const t0 = Date.now();
-  await (await page.$('#maps-add-elevation-input')).uploadFile(...hgts);
-  await page.waitForFunction(() => /used by|not used/.test(document.querySelector('#maps-panel .set-row')?.textContent ?? ''), { timeout: 600_000 })
+  await (await page.$('#maps-add-input')).uploadFile(...hgts);
+  await page.waitForFunction(() => /Elevation files stored/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 })
     .catch(async () => fail(`elevation files not stored: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
   await (await page.$('#maps-add-input')).uploadFile(IMG);
-  await page.waitForNavigation({ timeout: 600_000 });
+  await page.waitForFunction(() => /Added “/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 })
+    .catch(async () => fail(`map not added: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
+  const firstTicks = await page.$$eval('#maps-panel .split .row[aria-checked="true"]', (rs) => rs.map((r) => r.textContent));
+  if (firstTicks.length !== 2 || !/Detailed/.test(firstTicks[0]) || !/48 files/.test(firstTicks[1])) fail(`first map not ticked with its elevation: ${JSON.stringify(firstTicks)}`);
+  if (await page.$eval('#maps-apply', (b) => b.disabled)) fail('Apply dimmed with a map ticked');
+  await page.screenshot({ path: `${OUT}first-start-added.png` });
+  await Promise.all([page.waitForNavigation({ timeout: 600_000 }), page.click('#maps-apply')]);
   console.log(`import took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   await waitReady();
 
@@ -1443,96 +1450,113 @@ try {
   console.log('OPFS after the first start:', JSON.stringify(before));
   if (!before.pointer || !before.names.includes(`${before.pointer.dir}/`)) fail(`no committed map dir: ${JSON.stringify(before)}`);
   if (mapDirs(before).length !== 1 || setDirs(before).length !== 1) fail(`first start: expected one map and one elevation set, got ${JSON.stringify(before)}`);
-  const buttonShown = () => page.$eval('#maps-button', (b) => !b.closest('.maplibregl-ctrl').hidden);
-  if (await buttonShown()) fail('map button shown with one map and one set');
+  const buttonShown = () => page.$eval('#maps-button', (b) => !b.closest('.maplibregl-ctrl').hidden && !!b.offsetParent);
+  if (!(await buttonShown())) fail('map button hidden');
   await page.click('#menu-button');
   await page.click('#settings-open');
   await page.click('#settings-map');
   await page.waitForSelector('#maps-panel:not([hidden]) #maps-add', { timeout: 10_000 });
   if (await page.$('#maps-panel.standalone')) fail('the Maps panel over the map is the first-start one');
   const panelText = await page.$eval('#maps-panel', (e) => e.innerText);
-  if (!/Iceland GPSmap\.is 2024\.21 Detailed/.test(panelText) || !/3″ elevation · 48 files/.test(panelText) || !/used by 1 map/.test(panelText)) fail(`maps panel: ${panelText}`);
+  if (!/Iceland GPSmap\.is 2024\.21 Detailed/.test(panelText) || !/Shown/.test(panelText) || !/3″ elevation · 48 files/.test(panelText) || !/covers this map/.test(panelText) || !/None/.test(panelText)) fail(`maps panel: ${panelText}`);
+  if (!(await page.$eval('#maps-apply', (b) => b.disabled))) fail('Apply not dimmed with nothing changed');
+  /** The ticked rows' text: [map, set (or None)]. */
+  const ticked = () => page.$$eval('#maps-panel .split .row[aria-checked="true"]', (rs) => rs.map((r) => r.textContent));
+  /** Taps a row in the Maps panel by its text (`.map-row`, `.set-row`, `.set-none`). */
+  const tapRow = (cls, text) => page.evaluate((c, t) => [...document.querySelectorAll(`#maps-panel ${c} .row`)].find((r) => r.textContent.includes(t)).click(), cls, text);
+  const apply = async () => {
+    // In the page: the panel may be drawn again between finding the button and clicking it.
+    if (await page.evaluate(() => { const b = document.querySelector('#maps-apply'); b.click(); return b.disabled; })) fail('Apply dimmed with a change ticked');
+    await page.waitForSelector('#maps-panel[hidden]', { timeout: 60_000 }).catch(async () => fail(`Apply did not close the panel: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
+  };
 
-  // 7. A second map from "Add a map" (the file browser): kept beside the first, named after its
-  //    file, only added to the list: the panel stays open and the map shown stays.
+  // 7. A second map from Add… (the file browser): kept beside the first, named after its file and
+  //    ticked; the panel stays open and the map shown stays until Apply.
   const t1 = Date.now();
   await (await page.$('#maps-add-input')).uploadFile(IMG2);
-  await page.waitForFunction(() => /Map added/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 })
+  await page.waitForFunction(() => /Added “/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 })
     .catch(async () => fail(`adding a map: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
   console.log(`adding a map took ${((Date.now() - t1) / 1000).toFixed(1)} s`);
   if (await page.$('#maps-panel[hidden]')) fail('the Maps panel closed after adding a map');
-  if (!(await page.$('#map-note[hidden]'))) fail('a switch note shown after adding a map');
-  const mapRows = await page.$$eval('#maps-panel .map-row', (rs) => rs.map((r) => ({ text: r.textContent, on: !!r.querySelector('[aria-checked="true"]') })));
-  if (mapRows.length !== 2 || !mapRows.some((r) => /Focused/.test(r.text) && !r.on) || !mapRows.some((r) => /Detailed/.test(r.text) && r.on)) fail(`after adding a map: ${JSON.stringify(mapRows)}`);
+  const mapRows = await page.$$eval('#maps-panel .map-row', (rs) => rs.map((r) => ({ text: r.textContent, on: r.querySelector('.row').getAttribute('aria-checked') === 'true' })));
+  if (mapRows.length !== 2 || !mapRows.some((r) => /Focused/.test(r.text) && r.on) || !mapRows.some((r) => /Detailed/.test(r.text) && /Shown/.test(r.text) && !r.on)) fail(`after adding a map: ${JSON.stringify(mapRows)}`);
+  if (!/48 files/.test((await ticked())[1] ?? '')) fail(`the added map not ticked with the set covering it: ${JSON.stringify(await ticked())}`);
+  await page.screenshot({ path: `${OUT}maps-added.png` });
   const two = await opfs();
   console.log('OPFS with two maps:', JSON.stringify(two));
   if (mapDirs(two).length !== 2 || setDirs(two).length !== 1 || two.pointer.dir !== before.pointer.dir) fail(`expected two maps and one set, the first still current: ${JSON.stringify(two)}`);
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
   if (!(await page.evaluate(() => window.__app.search('landmannalaugar').length > 0))) fail('search found nothing after adding a map');
-  // Shown from its row's circle, in place, with the stored set (it covers the map).
+  // Apply shows it in place, with the stored set (it covers the map).
   const g0 = await tileGen();
-  await page.evaluate(() => [...document.querySelectorAll('#maps-panel .map-row')].find((r) => r.textContent.includes('Focused')).querySelector('.pick').click());
-  await page.waitForSelector('#map-note:not([hidden])', { timeout: 60_000 });
-  if (!/Focused/.test(await page.$eval('#map-note', (e) => e.innerText))) fail('the note does not name the map switched to');
+  await apply();
+  await page.waitForFunction((g) => Number(/\?v=(\d+)$/.exec(window.__app.map.getSource('garmin').tiles?.[0] ?? '')?.[1] ?? 0) > g, { timeout: 60_000 }, g0);
   const focusedDir = (await opfs()).pointer.dir;
   if (focusedDir === before.pointer.dir) fail('showing the added map did not make it current');
   const g1 = await tileGen();
-  if (g1 <= g0) fail('the added map was not shown in place');
   if (!(await page.evaluate(() => !!window.__app.map.getSource('dem')))) fail('the added map has no hillshading from the stored set');
-  if (!(await buttonShown())) fail('map button hidden with two maps');
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
 
-  // Switching from the map button keeps the place and zoom, the app's own layers and icons, and
-  // says which map it is with Undo.
+  // Switching from the map button keeps the place and zoom and the app's own layers and icons.
   await page.evaluate(() => new Promise((r) => { const m = window.__app.map; m.jumpTo({ center: [-19.06, 63.99], zoom: 12 }); m.once('idle', r); }));
   const view = () => page.evaluate(() => { const m = window.__app.map; const c = m.getCenter(); return { lon: +c.lng.toFixed(6), lat: +c.lat.toFixed(6), zoom: +m.getZoom().toFixed(4) }; });
   const v0 = await view();
   await page.click('#maps-button');
-  await page.waitForSelector('#map-picker:not([hidden]) [role="menuitemradio"]', { timeout: 10_000 });
-  const pickerRows = await page.$$eval('#map-picker [role="menuitemradio"]', (rs) => rs.map((r) => ({ text: r.textContent, on: r.getAttribute('aria-checked') })));
-  if (pickerRows.length !== 2 || pickerRows.find((r) => r.on === 'true')?.text?.includes('Focused') !== true) fail(`map picker: ${JSON.stringify(pickerRows)}`);
-  await page.screenshot({ path: `${OUT}maps-picker.png` });
-  await page.evaluate(() => [...document.querySelectorAll('#map-picker [role="menuitemradio"]')].find((r) => r.textContent.includes('Detailed')).click());
-  await page.waitForFunction(() => !document.querySelector('#map-note').hidden && /Detailed/.test(document.querySelector('#map-note').innerText), { timeout: 60_000 });
+  await page.waitForSelector('#maps-panel:not([hidden]) .map-row', { timeout: 10_000 });
+  if (!/Focused/.test((await ticked())[0] ?? '')) fail(`the map shown is not ticked: ${JSON.stringify(await ticked())}`);
+  await tapRow('.map-row', 'Detailed');
+  if (!/Detailed/.test((await ticked())[0] ?? '')) fail('tapping a map did not tick it');
+  if ((await tileGen()) !== g1) fail('ticking a map showed it before Apply');
+  await page.screenshot({ path: `${OUT}maps-panel.png` });
+  await apply();
+  await page.waitForFunction((g) => window.__app.map.getSource('garmin').tiles?.[0]?.endsWith(`?v=${g}`), { timeout: 60_000 }, g1 + 1);
   await page.evaluate(() => new Promise((r) => window.__app.map.once('idle', r)));
   const v1 = await view();
   if (JSON.stringify(v0) !== JSON.stringify(v1)) fail(`switching moved the map: ${JSON.stringify(v0)} → ${JSON.stringify(v1)}`);
   const afterSwitch = await page.evaluate(() => {
     const m = window.__app.map;
-    return { tiles: m.getSource('garmin').tiles?.[0], dem: !!m.getSource('dem'), star: m.hasImage('saved-star'), pins: !!m.getLayer('saved-pins'), note: document.querySelector('#map-note').innerText };
+    return { dem: !!m.getSource('dem'), star: m.hasImage('saved-star'), pins: !!m.getLayer('saved-pins') };
   });
-  console.log('after switching:', JSON.stringify(afterSwitch));
-  if (!afterSwitch.tiles?.endsWith(`?v=${g1 + 1}`) || !afterSwitch.dem || !afterSwitch.star || !afterSwitch.pins || !/Detailed/.test(afterSwitch.note)) fail(`switch: ${JSON.stringify(afterSwitch)}`);
+  if (!afterSwitch.dem || !afterSwitch.star || !afterSwitch.pins) fail(`switch: ${JSON.stringify(afterSwitch)}`);
   if ((await opfs()).pointer.dir !== before.pointer.dir) fail('switching did not make the map current');
   await page.screenshot({ path: `${OUT}maps-switched.png` });
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
   if (!(await page.evaluate(() => window.__app.search('landmannalaugar').length > 0))) fail('search found nothing after switching');
-  // Undo goes back.
-  await page.click('#map-note-undo');
+  // And back; ✕ throws away a tick.
+  await page.click('#maps-button');
+  await page.waitForSelector('#maps-panel:not([hidden]) .map-row', { timeout: 10_000 });
+  await tapRow('.map-row', 'Focused');
+  await page.click('#maps-panel .close');
+  await page.click('#maps-button');
+  await page.waitForSelector('#maps-panel:not([hidden]) .map-row', { timeout: 10_000 });
+  if (!/Detailed/.test((await ticked())[0] ?? '')) fail('a tick closed with ✕ was kept');
+  await tapRow('.map-row', 'Focused');
+  await apply();
   await page.waitForFunction((g) => window.__app.map.getSource('garmin').tiles?.[0]?.endsWith(`?v=${g}`), { timeout: 60_000 }, g1 + 2);
-  // The picker, still open, follows.
-  await page.waitForFunction(() => document.querySelector('#map-picker [role="menuitemradio"][aria-checked="true"]')?.textContent.includes('Focused'), { timeout: 10_000 })
-    .catch(() => fail('the map picker did not follow Undo'));
-  if ((await opfs()).pointer.dir !== focusedDir) fail('Undo did not go back to the map before');
-  console.log('switch and undo ok');
+  if ((await opfs()).pointer.dir !== focusedDir) fail('switching back did not make the map current');
+  console.log('switching ok');
 
-  // Hillshading Off and on again from the picker (the choice is the map's).
-  await page.waitForSelector('#map-picker:not([hidden]) .seg', { timeout: 10_000 });
-  await page.evaluate(() => [...document.querySelectorAll('#map-picker .seg button')].find((b) => b.textContent === 'Off').click());
-  await page.waitForFunction(() => !window.__app.map.getSource('dem'), { timeout: 60_000 }).catch(() => fail('hillshading Off left the hillshade'));
-  if ((await opfs()).choices?.maps?.[focusedDir]?.elevation !== null) fail('hillshading Off not remembered for the map');
-  await page.waitForFunction(() => [...document.querySelectorAll('#map-picker .seg button')].some((b) => b.textContent === 'Off' && b.getAttribute('aria-checked') === 'true'), { timeout: 10_000 });
-  await page.evaluate(() => [...document.querySelectorAll('#map-picker .seg button')].find((b) => b.textContent !== 'Off').click());
+  // Hillshading None (tapping the ticked set again) and back (the choice is the map's).
+  await page.click('#maps-button');
+  await page.waitForSelector('#maps-panel:not([hidden]) .set-row', { timeout: 10_000 });
+  await tapRow('.set-row', '48 files');
+  if (!/None/.test((await ticked())[1] ?? '')) fail(`tapping the ticked set again did not tick None: ${JSON.stringify(await ticked())}`);
+  if (!/no hillshading/.test(await page.$eval('#maps-panel .map-row .row[aria-checked="true"]', (r) => r.textContent))) fail('the map row does not follow the ticked hillshading');
+  await apply();
+  await page.waitForFunction(() => !window.__app.map.getSource('dem'), { timeout: 60_000 }).catch(() => fail('hillshading None left the hillshade'));
+  if ((await opfs()).choices?.maps?.[focusedDir]?.elevation !== null) fail('hillshading None not remembered for the map');
+  await page.click('#maps-button');
+  await page.waitForSelector('#maps-panel:not([hidden]) .set-none .row[aria-checked="true"]', { timeout: 10_000 });
+  await tapRow('.set-row', '48 files');
+  await apply();
   await page.waitForFunction(() => !!window.__app.map.getSource('dem'), { timeout: 60_000 }).catch(() => fail('hillshading did not come back'));
-  await page.evaluate(() => document.querySelector('#map-picker .close').click()); // it may be drawn again meanwhile
-  console.log('hillshading off and on ok');
+  console.log('hillshading none and back ok');
 
   // Details: rename, then remove the map shown (the other one is shown instead).
   await page.click('#menu-button');
   await page.click('#maps-open');
   await page.waitForSelector('#maps-panel:not([hidden]) .map-row', { timeout: 10_000 });
-  await page.screenshot({ path: `${OUT}maps-panel.png` });
-  await page.evaluate(() => [...document.querySelectorAll('#maps-panel .map-row .row:not(.pick)')].find((r) => r.textContent.includes('Focused')).click());
+  await page.evaluate(() => [...document.querySelectorAll('#maps-panel .map-row')].find((r) => r.textContent.includes('Focused')).querySelector('.info').click());
   await page.waitForSelector('#map-rename', { timeout: 10_000 });
   await page.screenshot({ path: `${OUT}maps-details.png` });
   await page.click('#map-rename');
@@ -1550,7 +1574,7 @@ try {
   const one = await opfs();
   if (mapDirs(one).length !== 1 || one.pointer.dir !== before.pointer.dir || setDirs(one).length !== 1) fail(`after removing: ${JSON.stringify(one)}`);
   if (!(await page.evaluate(() => !!window.__app.map.getSource('dem')))) fail('hillshade missing after removing the other map');
-  if (await buttonShown()) fail('map button still shown with one map');
+  if (!(await buttonShown())) fail('map button hidden with one map');
   await page.evaluate(() => document.querySelector('#maps-panel .close').click());
   console.log('rename and remove ok:', JSON.stringify(one));
 

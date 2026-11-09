@@ -47,13 +47,12 @@ try {
 
   // Loading a map.
   await page.goto(`${origin}/`);
-  // The first screen is the Maps panel: elevation files first (they stay), then the map (it opens).
+  // The first screen is the Maps panel: the map and its elevation files, ticked; Apply opens it.
   await page.waitForSelector('#maps-panel.standalone:not([hidden]) #maps-add');
   await shot('import');
-  await (await page.$('#maps-add-elevation-input')).uploadFile(...hgts);
-  await page.waitForSelector('#maps-panel .set-row', { timeout: 600_000 });
-  await (await page.$('#maps-add-input')).uploadFile(IMG);
-  await page.waitForNavigation({ timeout: 600_000 });
+  await (await page.$('#maps-add-input')).uploadFile(IMG, ...hgts);
+  await page.waitForSelector('#maps-apply:not(:disabled)', { timeout: 600_000 });
+  await Promise.all([page.waitForNavigation({ timeout: 600_000 }), tap('#maps-apply')]);
   await page.waitForFunction(() => window.__app?.ready === true && window.__app?.placesReady === true, { timeout: 600_000 });
 
   // The map, with hillshading: Landmannalaugar.
@@ -165,20 +164,15 @@ try {
   await tap('#maps-open');
   await page.waitForSelector('#maps-panel:not([hidden]) #maps-add');
   await (await page.$('#maps-add-input')).uploadFile(IMG2);
-  await page.waitForFunction(() => /Map added/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 });
-  // Added to the list only: shown from its row's circle.
-  await page.evaluate(() => [...document.querySelectorAll('#maps-panel .map-row')].find((r) => r.textContent.includes('Focused')).querySelector('.pick').click());
-  await page.waitForSelector('#map-note:not([hidden])', { timeout: 60_000 });
-  await page.waitForFunction(() => document.querySelector('#map-note').hidden, { timeout: 15_000 }); // the note goes after 8 s
+  await page.waitForFunction(() => /Added “/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 });
+  // Ticked when added: Apply shows it.
+  await tap('#maps-apply');
+  await page.waitForSelector('#maps-panel[hidden]', { timeout: 60_000 });
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
   await view([-19.06, 63.985], 11.5);
   await tap('#maps-button');
-  await page.waitForSelector('#map-picker:not([hidden]) .seg');
-  await shot('maps-picker');
-  await tap('#map-picker .close');
-  await tap('#menu-button');
-  await tap('#maps-open');
   await page.waitForSelector('#maps-panel:not([hidden]) .storage .bar');
+  await page.evaluate(() => [...document.querySelectorAll('#maps-panel .map-row .row')].find((r) => r.textContent.includes('Detailed')).click());
   await shot('maps');
 } finally {
   await browser.close();

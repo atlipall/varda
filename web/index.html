@@ -32,7 +32,7 @@
       /* Keyboard focus (on a Mac): a ring in the accent colour, white on the dark panels. Headings
          are focused by the app when a panel opens, not by the user: no ring. */
       :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-      :is(#nav-panel, #nav-banner, #here-toast, #nav-undo, #map-note, #photo-note, #photo-viewer, #photo-edit, #route-card.routed #route-head, #route-card.min) :focus-visible { outline-color: #fff; }
+      :is(#nav-panel, #nav-banner, #here-toast, #nav-undo, #photo-note, #photo-viewer, #photo-edit, #route-card.routed #route-head, #route-card.min) :focus-visible { outline-color: #fff; }
       [tabindex="-1"]:focus-visible { outline: none; }
       /* A round close button with an ✕ (cards and panels alike). */
       .close { width: var(--btn); height: var(--btn); flex: none; padding: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: #eef0f3; color: var(--ink); cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -108,8 +108,8 @@
       #here-form button.primary, #trip-form button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
       #here-error { color: #b3261e; font-size: calc(14 * var(--px)); }
       #here-error:empty { display: none; }
-      #here-toast, #nav-undo, #map-note { position: absolute; z-index: 6; left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--gap)); bottom: calc(max(0px, env(safe-area-inset-bottom) - 14px) + 64px); max-width: 420px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; min-height: 52px; border-radius: 14px; background: #1d2a38; color: #fff; font-size: calc(15 * var(--px)); box-shadow: 0 6px 20px #0a142859; }
-      #here-toast[hidden], #nav-undo[hidden], #map-note[hidden] { display: none; }
+      #here-toast, #nav-undo { position: absolute; z-index: 6; left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--gap)); bottom: calc(max(0px, env(safe-area-inset-bottom) - 14px) + 64px); max-width: 420px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; min-height: 52px; border-radius: 14px; background: #1d2a38; color: #fff; font-size: calc(15 * var(--px)); box-shadow: 0 6px 20px #0a142859; }
+      #here-toast[hidden], #nav-undo[hidden] { display: none; }
       /* Undo after End goes on top, under the search row: the cards that come back after guidance
          (the route's, a track's) are at the bottom; search results and the menu go over it. */
       #nav-undo { z-index: 2; top: calc(var(--top) + var(--btn) + var(--gap)); bottom: auto; }
@@ -129,9 +129,7 @@
       #trip-note { position: absolute; z-index: 6; left: calc(env(safe-area-inset-left) + var(--gap)); bottom: calc(max(0px, env(safe-area-inset-bottom) - 14px) + 64px); max-width: min(420px, calc(100% - 2 * var(--gap))); box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 12px; background: #1d2a38e6; color: #fff; font-size: calc(14 * var(--px)); }
       #trip-note[hidden] { display: none; }
       #here-toast-text, #nav-undo-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-      #map-note-text { flex: 1; min-width: 0; line-height: 1.3; overflow-wrap: anywhere; }
-      #map-note-text small { display: block; font-size: calc(13 * var(--px)); color: #c9d3e0; }
-      #here-undo, #nav-undo-button, #map-note-undo { min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: #ffffff1f; color: #fff; font-size: calc(15 * var(--px)); font-weight: 600; cursor: pointer; }
+      #here-undo, #nav-undo-button { min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: #ffffff1f; color: #fff; font-size: calc(15 * var(--px)); font-weight: 600; cursor: pointer; }
       #here-undo[hidden] { display: none; }
       /* Photos (⋯ → Photos, src/app/photos.ts): thumbnails on the map, the panel, the viewer. */
       .photo-pin { position: relative; width: 52px; height: 52px; padding: 0; border: 3px solid #fff; border-radius: 50%; background: #c9d2e3 center / cover no-repeat; box-shadow: 0 3px 10px #0a142859; cursor: pointer; box-sizing: border-box; }
@@ -275,13 +273,15 @@
       #map .locate-button.unavailable { opacity: 0.45; }
       #map .height-pill { padding: 3px 10px; border-radius: 999px; background: #fff; box-shadow: 0 1px 4px #0003; font: 600 calc(13 * var(--px))/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); }
       /* Tracks panel (⋯ → Tracks): below the top row, scrolls when long. */
-      #tracks, #saved, #photos, #overlays, #sync-panel, #diag-panel, #settings, #map-picker, #maps-panel { position: absolute; z-index: 4; top: calc(var(--top) + var(--btn) + 6px); left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--gap)); max-width: 420px; margin: 0 auto; max-height: calc(100% - var(--top) - var(--btn) - 90px); overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px 12px; background: #fff; }
+      #tracks, #saved, #photos, #overlays, #sync-panel, #diag-panel, #settings, #maps-panel { position: absolute; z-index: 4; top: calc(var(--top) + var(--btn) + 6px); left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--gap)); max-width: 420px; margin: 0 auto; max-height: calc(100% - var(--top) - var(--btn) - 90px); overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px 12px; background: #fff; }
       .tracks-head { display: flex; align-items: center; justify-content: space-between; }
-      /* Several maps (⋯ → Maps, and the map button's picker): rows with a radio or a tick, details
-         one step in, the elevation sets below the maps. */
+      /* The Maps panel (the map button, ⋯ → Maps): rows with a tick and ⓘ, details one step in,
+         the elevation sets below the maps, Apply kept at the bottom. */
       #map .maps-button { display: grid; place-items: center; color: var(--ink); border-radius: inherit; }
       /* With no map open (the first start), the Maps panel is the screen: at the top, centred side to
          side, scrolling within itself. */
+      #maps-panel.standalone .apply { bottom: -16px; margin: 12px -16px -16px; padding: 12px 16px 16px; }
+      .maps-ui #maps-add.big { margin-top: 8px; }
       #maps-panel.standalone { top: calc(env(safe-area-inset-top) + 16px); max-height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 32px); padding: 12px 16px 16px; }
       .maps-ui .intro { margin: 4px 0 10px; font-size: calc(15 * var(--px)); color: var(--ink); }
       .maps-ui h3 { margin: 14px 0 2px; font-size: calc(12 * var(--px)); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #667; }
@@ -290,14 +290,19 @@
       .maps-ui .row .t { flex: 1; min-width: 0; }
       .maps-ui .row .n { display: block; font-size: calc(16 * var(--px)); line-height: 1.25; overflow-wrap: anywhere; }
       .maps-ui .row .s { display: block; margin-top: 2px; font-size: calc(13.5 * var(--px)); color: #5d6673; line-height: 1.3; }
-      .maps-ui .row[aria-checked="true"] .n, .maps-ui .row[aria-current="true"] .n { font-weight: 600; }
-      .maps-ui .radio { flex: none; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 2px solid #b9bfc8; }
-      .maps-ui [aria-checked="true"] > .radio { border: 7px solid var(--accent); }
+      .maps-ui .row[aria-checked="true"] .n { font-weight: 600; }
       .maps-ui .tick { flex: none; width: 22px; color: var(--accent); font-size: calc(20 * var(--px)); font-weight: 700; text-align: center; }
       .maps-ui .chev { flex: none; color: #a5abb4; font-size: calc(22 * var(--px)); }
       .maps-ui .split { display: flex; align-items: stretch; border-top: 1px solid #0001; }
-      .maps-ui .split .row { border-top: 0; }
-      .maps-ui .split .row.pick { flex: none; width: 44px; justify-content: center; padding: 0; }
+      .maps-ui .split .row { flex: 1; min-width: 0; }
+      .maps-ui [role="radiogroup"] > .split:first-child { border-top: 0; }
+      .maps-ui .split .row .tick { visibility: hidden; }
+      .maps-ui .split .row[aria-checked="true"] .tick { visibility: visible; }
+      .maps-ui .info { flex: none; width: 44px; display: grid; place-items: center; margin-right: -8px; border: 0; background: none; color: var(--accent); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+      .maps-ui .shown { display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 9px; background: #eef0f3; font-size: calc(12 * var(--px)); font-weight: 600; line-height: 1.5; }
+      .maps-ui .apply { position: sticky; bottom: -12px; margin: 12px -12px -12px; padding: 12px; background: linear-gradient(#fff0, #fff 12px); }
+      .maps-ui .big { display: block; width: 100%; min-height: 48px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font-size: calc(16 * var(--px)); font-weight: 600; cursor: pointer; }
+      .maps-ui .big:disabled { background: #e3e6ea; color: #6b727c; cursor: default; }
       .maps-ui .item { display: block; width: 100%; min-height: 48px; padding: 12px 0; border: 0; border-top: 1px solid #0001; background: none; font-size: calc(16 * var(--px)); text-align: left; color: var(--ink); cursor: pointer; -webkit-tap-highlight-color: transparent; }
       .maps-ui .item.link { color: var(--accent); }
       .maps-ui .item.danger { color: #b00020; }
@@ -308,9 +313,6 @@
       .maps-ui .note:empty { display: none; }
       .maps-ui .error { color: #b00020; }
       .maps-ui .add { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; margin-top: 8px; border: 1.5px solid var(--accent); border-radius: 10px; background: #fff; color: var(--accent); font-size: calc(16 * var(--px)); cursor: pointer; }
-      .maps-ui .seg { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
-      .maps-ui .seg button { min-height: 44px; padding: 0 14px; border: 0; border-radius: 22px; background: #eef0f3; color: var(--ink); font-size: calc(15 * var(--px)); cursor: pointer; }
-      .maps-ui .seg button[aria-checked="true"] { background: var(--accent); color: #fff; font-weight: 600; }
       .maps-ui .bar { display: flex; height: 8px; margin: 14px 0 4px; border-radius: 4px; background: #eef0f3; overflow: hidden; }
       .maps-ui .bar i { display: block; height: 100%; }
       .maps-ui .cover { display: block; width: 100%; height: auto; margin: 10px 0 2px; border-radius: 8px; background: #dce8f3; }
@@ -509,11 +511,11 @@
          from the screen's size (startup.ts), not the window's, so the keyboard shrinking the page
          doesn't shrink the controls. */
       body.car-size {
-        & :is(#topbar, #menu-button, #menu, #badge, #update, #tracks, #saved, #photos, #overlays, #sync-panel, #diag-panel, #settings, #map-picker, #maps-panel, #trip-pill),
+        & :is(#topbar, #menu-button, #menu, #badge, #update, #tracks, #saved, #photos, #overlays, #sync-panel, #diag-panel, #settings, #maps-panel, #trip-pill),
         & #map :is(.maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left, .place-menu .maplibregl-popup-content) { zoom: 1.5; }
         /* The cards beside the map less so (at 1.5 the route and guidance cards took half the screen),
            and the notes that show in their place at the same size, so neither covers the other. */
-        & :is(#route-card, #here-card, #track-card, #trip-card, #here-toast, #nav-undo, #map-note, #trip-note, #photo-note, #photo-check, #sync-photos-ask, #pv-sheet, #pv-top, .pv-step) { zoom: 1.25; }
+        & :is(#route-card, #here-card, #track-card, #trip-card, #here-toast, #nav-undo, #trip-note, #photo-note, #photo-check, #sync-photos-ask, #pv-sheet, #pv-top, .pv-step) { zoom: 1.25; }
         /* The guidance cards smaller still, after Google Maps on a car screen: the map keeps the room. */
         & :is(#nav-banner, #nav-bottom) { zoom: 1.1; }
       }
@@ -683,9 +685,7 @@
       <button id="track-navigate" type="button"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 19-8-4.5L4 21z" fill="currentColor"/></svg>Navigate</button>
       <div class="track-card-row"><button id="track-reverse" type="button" aria-pressed="false">Reverse</button><button id="track-export" type="button">Export GPX</button></div>
     </section>
-    <section id="map-picker" class="panel maps-ui" aria-labelledby="map-picker-title" hidden></section>
     <section id="maps-panel" class="panel maps-ui" aria-labelledby="maps-title" hidden></section>
-    <div id="map-note" role="status" hidden><span id="map-note-text"></span><button id="map-note-undo" type="button">Undo</button></div>
     <div id="here-toast" role="status" hidden><span id="here-toast-text"></span><button id="here-undo" type="button">Undo</button></div>
     <div id="nav-undo" role="status" hidden><span id="nav-undo-text">Guidance ended</span><button id="nav-undo-button" type="button">Undo</button></div>
     <div id="photo-note" role="status" hidden><div id="photo-note-row"><span id="photo-note-text"></span><span id="photo-note-count"></span><button id="photo-note-undo" type="button" hidden>Undo</button></div><div id="photo-note-bar" hidden><div></div></div><p id="photo-note-sub" hidden></p></div>

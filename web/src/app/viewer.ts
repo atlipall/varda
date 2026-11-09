@@ -148,7 +148,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   // Phones pinch to zoom, so they get only the compass; the locate button sits bottom-right,
   // within thumb reach.
   const touch = matchMedia('(pointer: coarse)').matches;
-  // The map button (choosing a map and its hillshading) under ⋯, above the compass.
+  // The map button (the Maps panel: choosing a map and its hillshading) under ⋯, above the compass.
   const maps = new MapsUi({
     library: () => loadLibrary(),
     current: () => ({ id: src.stored.id, set: src.stored.set }),
@@ -156,7 +156,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
       const c = map.getCenter();
       return [c.lng, c.lat];
     },
-    switchTo: (id) => switchTo(id, true),
+    switchTo: (id) => switchTo(id),
     refresh: (without) => refresh(without),
     add: (store) => addMap(store),
     removeMap: (id) => removeOne(id),
@@ -239,12 +239,11 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   };
 
   // Which map is shown (the GPSmap.is package has several variants that look different) and its
-  // hillshading, in Settings; the map button once there's a choice.
+  // hillshading, in Settings.
   const showLabels = (l: Library) => {
     const m = l.maps.find((x) => x.id === src.stored.id);
     $('map-file').textContent = m?.name ?? mapName(src.stored.meta.imgName);
     $('map-dem').textContent = hillshadingText(src.stored.set);
-    maps.mapsButton.container.hidden = l.maps.length < 2 && l.sets.length < 2;
   };
   showLabels(lib);
   /** A map from before several were kept learns its area when shown (for coverage in the panels). */
@@ -323,7 +322,6 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     maps.showPanel(true);
   };
   dialogs.add('maps', () => maps.showPanel(false));
-  dialogs.add('map-picker', () => maps.showPicker(false));
 
   /** Draws `next` instead of `prev`, keeping the app's own layers and icons. */
   const put = (next: MapSource, prev: MapSource) => {
@@ -339,7 +337,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
    *  a map that chose it as having chosen none). */
   const elevationOf = (info: MapInfo, l: Library, without?: string) =>
     info.elevation !== undefined && info.elevation === without ? null : elevationFor(info, l.sets.filter((s) => s.id !== without));
-  /** Map changes, one at a time (an Undo while a switch is still on its way waits for it). */
+  /** Map changes, one at a time. */
   let queue: Promise<unknown> = Promise.resolve();
   const queued = <T>(run: () => Promise<T>): Promise<T> => {
     const p = queue.then(run);
@@ -349,13 +347,13 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   /** Shows map `id` with the hillshading chosen for it, in place: the app's own layers, the view
    *  (when the map covers it), a route and guidance stay. Throws, keeping the map shown, when it
    *  can't be opened. Run through `queued`. */
-  const show = async (id: string, without?: string): Promise<{ lib: Library; from: string }> => {
+  const show = async (id: string, without?: string): Promise<void> => {
     const l = await loadLibrary();
     const info = l.maps.find((m) => m.id === id);
     if (!info) throw new Error('That map is no longer stored.');
     const stored = await loadMap(l, id, elevationOf(info, l, without));
     const prev = src;
-    if (closed) return { lib: l, from: prev.stored.id };
+    if (closed) return;
     // The workers of the map shown go first: two maps' workers at once is more memory than a phone
     // may give (its tiles stop meanwhile; those drawn stay). If the next map can't be opened, the
     // one shown comes back; if even that fails, the app starts again.
@@ -390,18 +388,11 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
       saveNow();
     }
     showLabels(l);
-    return { lib: l, from: prev.stored.id };
   };
-  let noteTimer = 0;
-  const hideNote = () => {
-    clearTimeout(noteTimer);
-    $('map-note').hidden = true;
-  };
-  /** Switches to map `id`; with `note`, says so for 8 s with Undo. */
-  const switchTo = (id: string, note: boolean): Promise<void> => queued(async () => {
+  /** Switches to map `id`. */
+  const switchTo = (id: string): Promise<void> => queued(async () => {
     if (id === src.stored.id) return;
-    const { lib: l, from } = await show(id);
-    if (note) noteSwitch(l, id, from);
+    await show(id);
   });
   /** Adds a map beside the one shown, which stays. Its workers are closed for the copy (a phone's
    *  memory: the importer reads the new map too; tiles drawn stay) and opened again after. */
@@ -415,19 +406,6 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
       await show(before.stored.id).catch((e) => console.error('reopening the map', e));
     }
   });
-  /** Says which map is shown now, with Undo back to `from`, for 8 s. */
-  const noteSwitch = (l: Library, id: string, from: string) => {
-    const small = document.createElement('small');
-    small.textContent = hillshadingText(src.stored.set);
-    $('map-note-text').replaceChildren(l.maps.find((m) => m.id === id)?.name ?? '', small);
-    $('map-note').hidden = false;
-    clearTimeout(noteTimer);
-    noteTimer = window.setTimeout(hideNote, 8000);
-    $('map-note-undo').onclick = () => {
-      hideNote();
-      void switchTo(from, false).then(() => maps.reload()).catch((err) => console.error('undo map switch', err));
-    };
-  };
   /** Draws the map shown again when the elevation it should use isn't the one it has (a choice,
    *  a set added, changed or about to be removed: `without`). */
   const refresh = (without?: string): Promise<void> => queued(async () => {
