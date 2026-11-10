@@ -71,6 +71,13 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
+- **`maps-overlays-tabs` branch (2026-11-10), on the development site:** overlays moved into the
+  Maps panel as a **Maps | Overlays** tab (mockup `mockups/maps-and-overlays.html`); Maps and
+  Overlays gone from the ⋯ menu, so the map button opens it (Settings' map row too, on the Maps
+  tab). Owner's choices: an overlay is shown or hidden at once (no Apply); one Add… takes .img,
+  .hgt and .kml/.kmz; ⓘ on an overlay has Show where it is and Remove. `OverlaysPanel` became
+  the DOM-free `OverlayMap` (`web/src/app/overlayMap.ts`). Waiting for the owner's phone test
+  before merging; overlays can't be renamed yet (they show their file names).
 - **Shipped 2026-11-09** (merged from `one-maps-panel`): one Maps panel instead of the
   map button's picker plus ⋯ → Maps (mockup `mockups/one-maps-panel.html`, checked against Apple's
   HIG). Owner's choices: tapping a map or an elevation set only ticks it (`pick` in `MapsUi`);

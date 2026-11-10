@@ -54,7 +54,7 @@ async function checkSpace(needed: number): Promise<void> {
   if (free < needed * SPACE_MARGIN) {
     throw new ImgError(
       `Not enough storage space on this device: this needs about ${mb(needed * SPACE_MARGIN)} but only ${mb(Math.max(0, free))} is available. ` +
-        'Nothing was changed. You can remove maps or elevation files you no longer need in ⋯ → Maps.',
+        'Nothing was changed. You can remove maps or elevation files you no longer need from the Maps panel (the map button).',
     );
   }
 }

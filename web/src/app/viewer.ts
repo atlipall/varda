@@ -31,7 +31,7 @@ import { TripRecorder } from './tripRecorder';
 import { Navigator } from './navigation';
 import { loadSession, saveSession } from './session';
 import { TracksPanel } from './tracks';
-import { OverlaysPanel } from './overlaysPanel';
+import { OverlayMap } from './overlayMap';
 import type { TilePool } from '../worker/pool';
 import { carryOver, openSource, parseTileUrl, type MapSource } from './mapSource';
 import { MapsUi } from './mapsPanel';
@@ -54,7 +54,7 @@ declare global {
       search: (q: string) => Place[] | null;
       samples: typeof SAMPLES;
       tracks: TracksPanel | null;
-      overlays: OverlaysPanel | null;
+      overlays: OverlayMap | null;
       routePlanner: RoutePlanner | null;
     };
   }
@@ -277,7 +277,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   });
   // The panels opened from the menu: focus their heading; Escape or × closes them and focus goes
   // back to the menu button.
-  for (const [panel, close] of [['tracks', 'tracks-close'], ['saved', 'saved-close'], ['photos', 'photos-close'], ['overlays', 'overlays-close'], ['sync-panel', 'sync-close'], ['diag-panel', 'diag-close'], ['settings', 'settings-close']]) {
+  for (const [panel, close] of [['tracks', 'tracks-close'], ['saved', 'saved-close'], ['photos', 'photos-close'], ['sync-panel', 'sync-close'], ['diag-panel', 'diag-close'], ['settings', 'settings-close']]) {
     $(panel).addEventListener('keydown', (e) => e.key === 'Escape' && $(close).click());
     $(close).addEventListener('click', () => $('menu-button').focus());
   }
@@ -312,14 +312,10 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   /** Set when the page is going (the last map removed, or a map that can't be shown): nothing more
    *  is drawn or remembered. */
   let closed = false;
-  // ⋯ → Maps, and Settings' map row: the maps panel.
-  $('maps-open').onclick = () => {
-    setMenu(false);
-    maps.showPanel(true);
-  };
+  // Settings' map row opens the Maps panel too.
   $('settings-map').onclick = () => {
     $('settings').hidden = true;
-    maps.showPanel(true);
+    maps.showPanel(true, 'maps');
   };
   dialogs.add('maps', () => maps.showPanel(false));
 
@@ -438,7 +434,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     }
   };
 
-  const app = { map, perf, ready: false, placesReady: false, search: (_q: string): Place[] | null => null, samples: SAMPLES, tracks: null as TracksPanel | null, overlays: null as OverlaysPanel | null, trackCard: null as TrackCard | null, trip: null as TripRecorder | null, lastIntent: null as string | null, routePlanner: null as RoutePlanner | null, saved: null as SavedPanel | null, photos: null as Photos | null, sync: null as DriveSync | null, navigator: null as Navigator | null, screenAwake: awake };
+  const app = { map, perf, ready: false, placesReady: false, search: (_q: string): Place[] | null => null, samples: SAMPLES, tracks: null as TracksPanel | null, overlays: null as OverlayMap | null, trackCard: null as TrackCard | null, trip: null as TripRecorder | null, lastIntent: null as string | null, routePlanner: null as RoutePlanner | null, saved: null as SavedPanel | null, photos: null as Photos | null, sync: null as DriveSync | null, navigator: null as Navigator | null, screenAwake: awake };
   window.__app = app;
   // F-road/track classes from the place-index pass, keyed by tile id and NET offset. Resolved
   // once `loadPlaces` finishes; a route requested before then awaits this instead. Rejected if
@@ -528,15 +524,10 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
       tracks.show(true);
       focusPanel('tracks');
     };
-    // KML overlays (⋯ → Overlays), drawn under the tracks.
-    const overlays = new OverlaysPanel(map, FONT_REGULAR, 'gpx-casing');
+    // KML overlays (the Maps panel's Overlays tab), drawn under the tracks.
+    const overlays = new OverlayMap(map, FONT_REGULAR, 'gpx-casing');
     app.overlays = overlays;
-    $('overlays-open').onclick = () => {
-      setMenu(false);
-      overlays.show(true);
-      focusPanel('overlays');
-    };
-    dialogs.add('overlays', () => overlays.show(false));
+    maps.attachOverlays(overlays);
     const routePlanner = new RoutePlanner(
       map,
       (from, to, allow, prefer) => roadsReady.then((roads) => pool.route(from, to, allow, prefer, roads)),

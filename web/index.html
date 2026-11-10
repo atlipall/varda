@@ -273,10 +273,10 @@
       #map .locate-button.unavailable { opacity: 0.45; }
       #map .height-pill { padding: 3px 10px; border-radius: 999px; background: #fff; box-shadow: 0 1px 4px #0003; font: 600 calc(13 * var(--px))/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); }
       /* Tracks panel (⋯ → Tracks): below the top row, scrolls when long. */
-      #tracks, #saved, #photos, #overlays, #sync-panel, #diag-panel, #settings, #maps-panel { position: absolute; z-index: 4; top: calc(var(--top) + var(--btn) + 6px); left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--gap)); max-width: 420px; margin: 0 auto; max-height: calc(100% - var(--top) - var(--btn) - 90px); overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px 12px; background: #fff; }
+      #tracks, #saved, #photos, #sync-panel, #diag-panel, #settings, #maps-panel { position: absolute; z-index: 4; top: calc(var(--top) + var(--btn) + 6px); left: calc(env(safe-area-inset-left) + var(--gap)); right: calc(env(safe-area-inset-right) + var(--gap)); max-width: 420px; margin: 0 auto; max-height: calc(100% - var(--top) - var(--btn) - 90px); overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px 12px; background: #fff; }
       .tracks-head { display: flex; align-items: center; justify-content: space-between; }
-      /* The Maps panel (the map button, ⋯ → Maps): rows with a tick and ⓘ, details one step in,
-         the elevation sets below the maps, Apply kept at the bottom. */
+      /* The Maps panel (the map button), in Maps and Overlays tabs: rows with a tick (or an eye) and
+         ⓘ, details one step in, the elevation sets below the maps, Apply kept at the bottom. */
       #map .maps-button { display: grid; place-items: center; color: var(--ink); border-radius: inherit; }
       /* With no map open (the first start), the Maps panel is the screen: at the top, centred side to
          side, scrolling within itself. */
@@ -308,6 +308,15 @@
       .maps-ui .item.danger { color: #b00020; }
       .maps-ui .item:disabled { opacity: 0.5; }
       .maps-ui .back { display: inline-flex; align-items: center; gap: 2px; min-height: 44px; margin-left: -6px; padding: 0 6px; border: 0; background: none; color: var(--accent); font-size: calc(16 * var(--px)); cursor: pointer; }
+      /* Maps | Overlays: kept at the top while the list scrolls. */
+      .maps-ui .tabs { position: sticky; top: -8px; z-index: 1; display: flex; gap: 2px; margin: 2px 0 6px; padding: 2px; border-radius: 9px; background: #eef0f3; box-shadow: 0 -8px 0 #fff; }
+      .maps-ui .tabs button { flex: 1; min-height: 40px; border: 0; border-radius: 7px; background: none; color: var(--ink); font: inherit; font-size: calc(15 * var(--px)); cursor: pointer; }
+      .maps-ui .tabs button[aria-selected="true"] { background: #fff; font-weight: 600; box-shadow: 0 1px 3px #0002; }
+      .maps-ui .swatch { flex: none; display: inline-block; width: 14px; height: 14px; margin: 0 4px; border-radius: 50%; box-shadow: inset 0 0 0 1px #0002; }
+      .maps-ui .title .swatch { margin: 0 10px 0 0; vertical-align: 1px; }
+      .maps-ui .overlay-list > .split:first-child { border-top: 0; }
+      .maps-ui .eye { flex: none; width: 32px; display: grid; place-items: center; color: var(--accent); }
+      .maps-ui .hidden-overlay .n, .maps-ui .hidden-overlay .s, .maps-ui .hidden-overlay .eye { color: #9aa1aa; }
       .maps-ui .title { margin: 2px 0 2px; font-size: calc(20 * var(--px)); overflow-wrap: anywhere; }
       .maps-ui .note { margin: 6px 0 0; font-size: calc(13.5 * var(--px)); color: #5d6673; line-height: 1.38; }
       .maps-ui .note:empty { display: none; }
@@ -322,11 +331,10 @@
       #settings h3 { margin: 14px 0 2px; font-size: calc(12 * var(--px)); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #667; }
       #settings .item { display: block; width: 100%; min-height: 48px; padding: 12px 0; border: 0; border-top: 1px solid #0001; background: none; font-size: calc(16 * var(--px)); text-align: left; color: var(--ink); cursor: pointer; -webkit-tap-highlight-color: transparent; }
       .tracks-head .close { margin-right: -4px; }
-      #tracks-empty, #saved-empty, #overlays-empty { margin: 4px 0 8px; color: #556; font-size: calc(14 * var(--px)); }
+      #tracks-empty, #saved-empty { margin: 4px 0 8px; color: #556; font-size: calc(14 * var(--px)); }
       #track-list, #saved-list { list-style: none; margin: 0; padding: 0; }
       .track { display: grid; grid-template-columns: 14px 1fr auto auto auto; align-items: center; gap: 8px; border-top: 1px solid #0001; }
       /* A row being renamed: the name field with Save and Cancel across the whole row. */
-      .track.overlay { grid-template-columns: 14px 1fr auto auto; }
       .track.renaming { display: block; padding: 8px 0; }
       .rename-form { display: flex; gap: 8px; }
       .rename-form input { flex: 1; min-width: 0; padding: 8px 10px; border: 1.5px solid var(--accent); border-radius: 10px; font-size: max(16px, calc(16 * var(--px))); }
@@ -357,9 +365,9 @@
       .track-rename, .track-eye, .track-delete { min-width: 44px; height: 44px; border: 0; border-radius: 8px; background: none; color: #445; cursor: pointer; display: grid; place-items: center; -webkit-tap-highlight-color: transparent; }
       .track-eye[aria-pressed="false"] { color: #778; }
       .track-delete.confirm { padding: 0 10px; background: #b00020; color: #fff; font-size: calc(14 * var(--px)); font-weight: 600; }
-      #tracks-error, #saved-error, #overlays-error { color: #b00020; font-size: calc(14 * var(--px)); white-space: pre-wrap; overflow-wrap: anywhere; }
-      #tracks-error:not(:empty), #saved-error:not(:empty), #overlays-error:not(:empty) { margin-top: 8px; }
-      #import-gpx, #import-overlay { margin-top: 10px; min-height: 44px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font-size: calc(16 * var(--px)); cursor: pointer; }
+      #tracks-error, #saved-error { color: #b00020; font-size: calc(14 * var(--px)); white-space: pre-wrap; overflow-wrap: anywhere; }
+      #tracks-error:not(:empty), #saved-error:not(:empty) { margin-top: 8px; }
+      #import-gpx { margin-top: 10px; min-height: 44px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font-size: calc(16 * var(--px)); cursor: pointer; }
       .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
       #results li[aria-selected="true"] { background: #eef3ff; }
       /* Turn-by-turn: the turn banner on top, the off-route question and the trip panel at the
@@ -511,7 +519,7 @@
          from the screen's size (startup.ts), not the window's, so the keyboard shrinking the page
          doesn't shrink the controls. */
       body.car-size {
-        & :is(#topbar, #menu-button, #menu, #badge, #update, #tracks, #saved, #photos, #overlays, #sync-panel, #diag-panel, #settings, #maps-panel, #trip-pill),
+        & :is(#topbar, #menu-button, #menu, #badge, #update, #tracks, #saved, #photos, #sync-panel, #diag-panel, #settings, #maps-panel, #trip-pill),
         & #map :is(.maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left, .place-menu .maplibregl-popup-content) { zoom: 1.5; }
         /* The cards beside the map less so (at 1.5 the route and guidance cards took half the screen),
            and the notes that show in their place at the same size, so neither covers the other. */
@@ -548,8 +556,6 @@
       <button id="tracks-open">Tracks</button>
       <button id="saved-open">Saved places</button>
       <button id="photos-open">Photos</button>
-      <button id="maps-open">Maps</button>
-      <button id="overlays-open">Overlays</button>
       <button id="sync-open">Sync and backup<span id="sync-menu-status"></span></button>
       <button id="settings-open">Settings</button>
     </div>
@@ -580,17 +586,6 @@
       <div id="tracks-error" role="alert"></div>
       <button id="import-gpx" type="button">Import GPX…</button>
       <input id="gpx-file" type="file" multiple hidden />
-    </section>
-    <section id="overlays" class="panel" aria-labelledby="overlays-title" hidden>
-      <div class="tracks-head">
-        <h2 id="overlays-title" tabindex="-1">Overlays</h2>
-        <button id="overlays-close" class="close" type="button" aria-label="Close overlays"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
-      </div>
-      <p id="overlays-empty">Draw extra areas, lines and places over the map from KML files, such as the drone no-fly zones in GPSmap.is's OVERLAYS folder.</p>
-      <ul id="overlay-list"></ul>
-      <div id="overlays-error" role="alert"></div>
-      <button id="import-overlay" type="button">Import KML…</button>
-      <input id="overlay-file" type="file" multiple hidden />
     </section>
     <section id="saved" class="panel" aria-labelledby="saved-title" hidden>
       <div class="tracks-head">

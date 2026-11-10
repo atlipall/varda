@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
-import { overlaySummary } from '../src/app/overlaysPanel';
+import { overlaySummary } from '../src/app/overlayMap';
 import { KmlError, kmlColor, parseKml, readOverlayFile } from '../src/overlays/kml';
 import { parseXml } from '../src/overlays/xml';
 import { REPO } from './helpers/paths';

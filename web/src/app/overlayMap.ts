@@ -2,10 +2,7 @@ import type * as maplibregl from 'maplibre-gl';
 import { readOverlayFile, type OverlayFeature } from '../overlays/kml';
 import { addOverlay, deleteOverlay, getOverlayFeatures, listOverlays, putOverlay, type StoredOverlay } from '../overlays/store';
 import { newId } from '../saved/saved';
-import { deleteButton, eyeButton, fitClearOf } from './listButtons';
-import { acceptDrops, extensions } from '../ui/drop';
-
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+import { fitClearOf } from './listButtons';
 
 /** "195 places · 23 areas" */
 export function overlaySummary(c: StoredOverlay['counts']): string {
@@ -14,38 +11,33 @@ export function overlaySummary(c: StoredOverlay['counts']): string {
 }
 
 /**
- * ⋯ → Overlays: KML files (such as GPSmap.is's drone no-fly zones, parking zones and artworks)
- * drawn over the map in their own colours. Areas and lines go under the map's names so the names
- * stay readable; points and their names go on top, under the tracks. Only the visible overlays'
- * shapes are read from storage and held. Kept on this device only.
+ * KML overlays (such as GPSmap.is's drone no-fly zones, parking zones and artworks) drawn over the
+ * map in their own colours; listed in the Maps panel's Overlays tab. Areas and lines go under the
+ * map's names so the names stay readable; points and their names go on top, under the tracks. Only
+ * the visible overlays' shapes are read from storage and held. Kept on this device only.
  */
-export class OverlaysPanel {
+export class OverlayMap {
   private overlays: StoredOverlay[] = [];
   /** The shapes of the visible overlays, by id. */
   private readonly shapes = new Map<string, OverlayFeature[]>();
-  private readonly panel = $('overlays');
-  private readonly list = $<HTMLUListElement>('overlay-list');
-  private readonly error = $('overlays-error');
+  /** Read from storage (never rejects: a failure is in `loadError`). */
   private readonly loaded: Promise<void>;
+  loadError = '';
+  /** Called when the list or an overlay's visibility changed. */
+  onChange = () => {};
 
   /** `underTracks`: the layer the points and names go under (the tracks' lowest, already added). */
   constructor(private readonly map: maplibregl.Map, font: string, underTracks: string) {
     this.addLayers(font, underTracks);
-    const input = $<HTMLInputElement>('overlay-file');
-    $('import-overlay').onclick = () => input.click();
-    input.onchange = () => {
-      const files = [...(input.files ?? [])];
-      input.value = '';
-      void this.importFiles(files);
-    };
-    acceptDrops(this.panel, (files) => void this.importFiles(files), extensions('kml', 'kmz'));
-    $('overlays-close').onclick = () => this.show(false);
-    this.loaded = this.load().catch((err) => this.fail(err));
+    this.loaded = this.load().catch((err) => {
+      this.loadError = err instanceof Error ? err.message : String(err);
+      this.onChange();
+    });
   }
 
   private async load(): Promise<void> {
     this.overlays = await listOverlays();
-    this.refreshList();
+    this.onChange();
     for (const o of this.overlays.filter((x) => x.visible)) this.shapes.set(o.id, await getOverlayFeatures(o.id));
     if (this.shapes.size) this.draw();
   }
@@ -75,21 +67,16 @@ export class OverlaysPanel {
       paint: { 'text-color': ['get', 'line'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 } }, underTracks);
   }
 
-  show(open: boolean): void {
-    this.panel.hidden = !open;
-    if (open) this.error.textContent = '';
-  }
-
-  /** The overlays as listed (for tests). */
+  /** The overlays, in the order added. */
   get all(): StoredOverlay[] {
     return this.overlays;
   }
 
-  async importFiles(files: File[]): Promise<void> {
+  /** Stores and shows KML/KMZ files; a file that can't be read is named in `problems`. */
+  async importFiles(files: File[]): Promise<{ added: StoredOverlay[]; problems: string[] }> {
     await this.loaded;
-    this.error.textContent = '';
+    const added: StoredOverlay[] = [];
     const problems: string[] = [];
-    let last: StoredOverlay | null = null;
     for (const file of files) {
       try {
         const { features, ...rest } = await readOverlayFile(file.name, new Uint8Array(await file.arrayBuffer()));
@@ -97,20 +84,22 @@ export class OverlaysPanel {
         await addOverlay(o, features);
         this.overlays.push(o);
         this.shapes.set(o.id, features);
-        last = o;
+        added.push(o);
       } catch (err) {
-        problems.push(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+        problems.push(`“${file.name}” couldn’t be added: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    if (last) this.draw();
-    this.refreshList();
-    if (problems.length) this.error.textContent = problems.join('\n');
-    if (last) this.zoomTo(last);
+    if (added.length) {
+      this.draw();
+      this.onChange();
+    }
+    return { added, problems };
   }
 
-  private zoomTo(o: StoredOverlay): void {
+  /** Fits overlay `o` in view, clear of `panel` while it's open. */
+  zoomTo(o: StoredOverlay, panel: HTMLElement): void {
     const [w, s, e, n] = o.bounds;
-    fitClearOf(this.map, this.panel, [[w, s], [e, n]], 16);
+    fitClearOf(this.map, panel, [[w, s], [e, n]], 16);
   }
 
   /** Hands the visible overlays' shapes to the map, in list order. */
@@ -119,72 +108,30 @@ export class OverlaysPanel {
     (this.map.getSource('overlays') as maplibregl.GeoJSONSource | undefined)?.setData({ type: 'FeatureCollection', features });
   }
 
-  private refreshList(): void {
-    $('overlays-empty').hidden = this.overlays.length > 0;
-    this.list.replaceChildren(...this.overlays.map((o) => this.row(o)));
-  }
-
-  private row(o: StoredOverlay): HTMLLIElement {
-    const li = document.createElement('li');
-    li.className = 'track overlay';
-    li.dataset.id = o.id;
-    const swatch = document.createElement('span');
-    swatch.className = 'swatch';
-    swatch.style.backgroundColor = o.color;
-    const info = document.createElement('button');
-    info.type = 'button';
-    info.className = 'track-info';
-    info.title = 'Show on the map';
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = o.name;
-    const stats = document.createElement('span');
-    stats.className = 'stats';
-    stats.textContent = overlaySummary(o.counts);
-    info.append(name, stats);
-    info.onclick = () => {
-      if (!o.visible) void this.setVisible(o, true);
-      this.zoomTo(o);
-      if (matchMedia('(pointer: coarse)').matches) this.show(false);
-    };
-    li.append(
-      swatch,
-      info,
-      eyeButton(o.name, o.visible, () => void this.setVisible(o, !o.visible)),
-      deleteButton(o.name, () => void this.remove(o)),
-    );
-    return li;
-  }
-
-  private async setVisible(o: StoredOverlay, visible: boolean): Promise<void> {
+  /** Shows or hides an overlay at once, and remembers it. */
+  async setVisible(o: StoredOverlay, visible: boolean): Promise<void> {
     o.visible = visible;
-    this.refreshList();
+    this.onChange();
     try {
       await putOverlay(o);
-      if (!visible) this.shapes.delete(o.id);
-      else {
-        const features = await getOverlayFeatures(o.id);
-        if (!o.visible) return; // hidden again meanwhile
-        this.shapes.set(o.id, features);
-      }
-      this.draw();
     } catch (err) {
-      this.fail(err);
+      o.visible = !visible;
+      this.onChange();
+      throw err;
     }
+    if (!visible) this.shapes.delete(o.id);
+    else {
+      const features = await getOverlayFeatures(o.id);
+      if (!o.visible || !this.overlays.includes(o)) return; // hidden or removed meanwhile
+      this.shapes.set(o.id, features);
+    }
+    this.draw();
   }
 
-  private async remove(o: StoredOverlay): Promise<void> {
-    try {
-      await deleteOverlay(o.id);
-      this.overlays = this.overlays.filter((x) => x.id !== o.id);
-      if (this.shapes.delete(o.id)) this.draw();
-      this.refreshList();
-    } catch (err) {
-      this.fail(err);
-    }
-  }
-
-  private fail(err: unknown): void {
-    this.error.textContent = err instanceof Error ? err.message : String(err);
+  async remove(id: string): Promise<void> {
+    await deleteOverlay(id);
+    this.overlays = this.overlays.filter((x) => x.id !== id);
+    if (this.shapes.delete(id)) this.draw();
+    this.onChange();
   }
 }

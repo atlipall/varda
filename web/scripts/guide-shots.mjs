@@ -152,7 +152,7 @@ try {
   await shot('sync');
   await tap('#sync-close');
 
-  // More than one map: a second one added from ⋯ → Maps and shown from its row, then the map button's
+  // More than one map: a second one added from the map button and shown from its row, then the map button's
   // picker over Landmannalaugar, and the Maps panel; without the track and route of the shots
   // before, which would only distract here.
   await page.evaluate(async () => {
@@ -160,8 +160,7 @@ try {
     for (const t of app.tracks.all) await app.tracks.deleteById(t.id);
     app.routePlanner.clear('guide shots');
   });
-  await tap('#menu-button');
-  await tap('#maps-open');
+  await tap('#maps-button');
   await page.waitForSelector('#maps-panel:not([hidden]) #maps-add');
   await (await page.$('#maps-add-input')).uploadFile(IMG2);
   await page.waitForFunction(() => /Added “/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 600_000 });

@@ -252,7 +252,7 @@
     </ol>
     <div class="shots"><figure><img src="images/import.webp" width="780" height="1688" loading="lazy" alt="The Maps panel on the first start: Add… for maps and elevation files, and Download the free map of Iceland" /><figcaption>The first screen: add a map and its elevation files.</figcaption></figure></div>
     <h3>More than one map</h3>
-    <p>Every map you add is kept. The map button under <b>⋯</b> (or <b>⋯ → Maps</b>) opens the same panel: tap a map to tick it, then <b>Apply</b> to show it, at the same place and zoom. To add more maps, tap <b>Add…</b> and pick one <code>.img</code> file or several at once; they're copied one after another, and the last one added is ticked. The map you're looking at stays until you tap Apply. If a file can't be read, the panel says which one, and the others are still added. <b>✕</b> closes the panel without changing anything.</p>
+    <p>Every map you add is kept. The map button under <b>⋯</b> opens the same panel (Settings' map row does too). On its <b>Maps</b> tab, tap a map to tick it, then <b>Apply</b> to show it, at the same place and zoom. To add more maps, tap <b>Add…</b> and pick one <code>.img</code> file or several at once; they're copied one after another, and the last one added is ticked. The map you're looking at stays until you tap Apply. If a file can't be read, the panel says which one, and the others are still added. <b>✕</b> closes the panel without changing anything.</p>
     <p>Elevation files are kept on their own, so one set of <code>.hgt</code> files gives every map its hill shading. Under <b>Hillshading</b>, the ticked map's set is ticked: tap another, or <b>None</b> (or the ticked one again), then Apply. The <b>ⓘ</b> beside a map or a set opens its details, where you rename or remove it.</p>
     <div class="shots"><figure><img src="images/maps.webp" width="780" height="1688" loading="lazy" alt="The Maps panel: two GPSmap.is maps, the Detailed one ticked and the Focused one shown, the 3″ elevation set ticked for it, Add…, and Apply" /><figcaption><b>Maps</b>: tick a map and its hillshading, then Apply.</figcaption></figure></div>
     <h3>Or download the free map</h3>
@@ -332,9 +332,9 @@
     <h2>Overlays</h2>
     <p>Overlays draw extra areas, lines and places over the map from KML files, the format Google Earth uses. GPSmap.is comes with some in its <b>OVERLAYS</b> folder: drone no-fly zones, Reykjavík's parking zones and public artworks.</p>
     <ol class="steps">
-      <li><span>Open <b>⋯ → Overlays</b> and tap <b>Import KML…</b>, then pick one or more .kml or .kmz files.</span></li>
+      <li><span>Tap the map button under <b>⋯</b>, open the <b>Overlays</b> tab and tap <b>Add…</b>, then pick one or more .kml or .kmz files. (Add… on the Maps tab takes them too.)</span></li>
       <li><span>Each overlay keeps the colours its file gives it. Areas are see-through and sit under the map's names; places show as dots with their names.</span></li>
-      <li><span>In the list, tap an overlay to see all of it; the eye hides it and the bin deletes it (tap twice).</span></li>
+      <li><span>In the list, tap an overlay to hide or show it at once (the eye shows which). Its <b>ⓘ</b> has <b>Show where it is</b>, which fits all of it on the screen, and <b>Remove</b>.</span></li>
     </ol>
     <p class="muted">Overlays are kept on this device only; they aren't synced or in the <b>Back up…</b> file. Picture overlays and 3D models in KML files aren't shown.</p>
   </section>
@@ -438,7 +438,7 @@
       <li><b>To stop syncing</b>, tap <b>Stop syncing</b> in <b>⋯ → Sync and backup</b>; this also withdraws that device's access key at Google. To remove the synced copy and the app's access, open your Google Account's <a href="https://myaccount.google.com/connections">third-party connections</a> and remove Varda, and delete the app's hidden data under Drive's <b>Settings → Manage apps</b>.</li>
       <li><b>The download helper.</b> <b>Download the free map of Iceland</b> fetches the Freizeitkarte map through a small helper of ours (a Cloudflare Worker at <code>download.vardamaps.app</code>), because the browser can't fetch it from Freizeitkarte's server directly. It passes that one file on and keeps nothing; Freizeitkarte's server sees the helper's request, not yours. Cloudflare may log basic request details such as IP addresses.</li>
       <li><b>Downloading the app.</b> The app is served by GitHub Pages, which may log basic request details such as your IP address when the app is downloaded or updated; see <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's privacy statement</a>. After that the app works offline. The Android app is downloaded from GitHub too; it only opens this same app in Chrome (or in its own built-in browser), asks for nothing but your location, and collects nothing.</li>
-      <li><b>Deleting your data.</b> Remove the app from your Home Screen or clear the website data for vardamaps.app in your browser settings. <b>⋯ → Maps</b> removes maps and elevation files one at a time.</li>
+      <li><b>Deleting your data.</b> Remove the app from your Home Screen or clear the website data for vardamaps.app in your browser settings. The Maps panel (the map button) removes maps, elevation files and overlays one at a time, from each one's <b>ⓘ</b>.</li>
       <li>Questions: open an issue on <a href="https://github.com/atlipall/varda/issues">GitHub</a>.</li>
     </ul>
   </section>

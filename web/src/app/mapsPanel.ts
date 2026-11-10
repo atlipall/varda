@@ -4,6 +4,9 @@ import { changeChoices, clearStored, downloadMap, importElevation, importFiles, 
 import { HGT_STEP } from '../dem/hgt';
 import { acceptDrops, extensions } from '../ui/drop';
 import { editName } from '../ui/rename';
+import { overlaySummary, type OverlayMap } from './overlayMap';
+import { EYE_OFF, EYE_ON } from './listButtons';
+import type { StoredOverlay } from '../overlays/store';
 
 /** The free OpenStreetMap-based map of Iceland, through the download pass-through (web/download-worker). */
 const FREE_MAP_URL = 'https://download.vardamaps.app/iceland.zip';
@@ -73,6 +76,8 @@ function row(name: string, sub: Array<Node | string>, opts: { lead?: El; trail?:
 const chev = () => h('span', { class: 'chev', 'aria-hidden': 'true', text: '›' });
 /** A label in the middle of a row's line ("… · covers this map"). */
 const lower = (s: string) => s.replace(/^./, (x) => x.toLowerCase());
+/** An overlay's colour dot. */
+const swatch = (color: string) => h('span', { class: 'swatch', style: `background:${color}`, 'aria-hidden': 'true' });
 const tick = () => h('span', { class: 'tick', 'aria-hidden': 'true', text: '✓' });
 
 /** The map button, top right under ⋯: opens the Maps panel. */
@@ -93,7 +98,8 @@ export class MapsButton implements maplibregl.IControl {
   }
 }
 
-type View = { kind: 'list' } | { kind: 'map'; id: string; renaming?: boolean } | { kind: 'set'; id: string; renaming?: boolean };
+type View = { kind: 'list' } | { kind: 'map'; id: string; renaming?: boolean } | { kind: 'set'; id: string; renaming?: boolean } | { kind: 'overlay'; id: string };
+type Tab = 'maps' | 'overlays';
 
 /** The map ticked in the list and the elevation set ticked for it (null: none). Nothing is shown
  *  or saved until Apply. */
@@ -114,9 +120,10 @@ export interface Standalone {
   leftovers?: boolean;
 }
 
-/** The Maps panel (the map button, ⋯ → Maps, Settings' map row): a map and its hillshading are
- *  ticked and shown with Apply; maps and elevation files are added, renamed and removed. Also the
- *  first screen, before there's a map. */
+/** The Maps panel (the map button, Settings' map row), in two tabs. Maps: a map and its
+ *  hillshading are ticked and shown with Apply; maps and elevation files are added, renamed and
+ *  removed. Overlays: KML overlays shown or hidden at once, added and removed. Also the first
+ *  screen, before there's a map (maps only). */
 export class MapsUi {
   readonly mapsButton = new MapsButton();
   private readonly panel = document.getElementById('maps-panel')!;
@@ -128,6 +135,10 @@ export class MapsUi {
   private estimate: StorageEstimate | null = null;
   private pick: Pick | null = null;
   private busy = false;
+  /** The overlays, once the map is open (none on the first screen). */
+  private overlays: OverlayMap | null = null;
+  /** The tab shown; the panel opens on the one used last. */
+  private tab: Tab = 'maps';
   private message = '';
   private messageIsError = false;
 
@@ -136,23 +147,69 @@ export class MapsUi {
     this.mapsButton.button.onclick = () => this.showPanel(this.panel.hidden !== false);
     // Nothing behind the standalone panel to go back to.
     this.panel.addEventListener('keydown', (e) => e.key === 'Escape' && !this.standalone && this.showPanel(false));
-    acceptDrops(this.panel, (files) => this.take(files), extensions('img', 'hgt'));
+    acceptDrops(this.panel, (files) => this.take(files), extensions('img', 'hgt', 'kml', 'kmz'));
   }
 
-  /** Files picked with Add… or dropped on the panel: maps (any elevation files given with them
-   *  stored once, with the first, as a set the others also take where it covers them), or
-   *  elevation files alone, added to the set shown or stored as a new one. */
+  /** The overlays, listed in their own tab from now on. */
+  attachOverlays(overlays: OverlayMap): void {
+    this.overlays = overlays;
+    // Only what shows the overlays is drawn again.
+    overlays.onChange = () => (this.view.kind === 'overlay' || (this.view.kind === 'list' && this.tab === 'overlays')) && this.redraw();
+    this.redraw();
+  }
+
+  /** Files picked with Add… or dropped on the panel. Overlays are added and shown. Maps: any
+   *  elevation files given with them stored once, with the first, as a set the others also take
+   *  where it covers them. Elevation files alone: added to the set shown or stored as a new one.
+   *  Other files are named and left out. */
   private take(files: File[]): void {
     const img = extensions('img');
     const hgt = extensions('hgt');
+    const kml = extensions('kml', 'kmz');
     if (this.stillBusy()) return;
-    if (files.some((f) => !img(f.name) && !hgt(f.name))) return this.showError('Choose a map (.img file) or elevation files (.hgt).');
     const imgs = files.filter((f) => img(f.name));
     const hgts = files.filter((f) => hgt(f.name));
-    if (imgs.length) {
-      this.storeMaps(imgs.map((f) => ({ name: f.name, store: (hgt, onProgress, opts) => importFiles(f, hgt, onProgress, opts) })), hgts);
+    const kmls = this.overlays ? files.filter((f) => kml(f.name)) : [];
+    const kinds = this.overlays ? 'a map (.img), elevation files (.hgt) or an overlay (.kml, .kmz)' : 'a map (.img file) or elevation files (.hgt)';
+    const others = files.filter((f) => !imgs.includes(f) && !hgts.includes(f) && !kmls.includes(f));
+    if (others.length === files.length) return this.showError(`Choose ${kinds}.`);
+    const left = others.map((f) => `“${f.name}” was left out: choose ${kinds}.`);
+    const maps = imgs.length || hgts.length;
+    this.tab = maps ? 'maps' : 'overlays';
+    if (!maps) return this.addOverlays(kmls, left);
+    void (async () => {
+      // Overlays first (quick); their result goes after the maps' own message.
+      const extra = kmls.length ? [(await this.importOverlays(kmls)).text, ...left] : left;
+      if (imgs.length) this.storeMaps(imgs.map((f) => ({ name: f.name, store: (hgt, onProgress, opts) => importFiles(f, hgt, onProgress, opts) })), hgts, extra);
+      else this.addElevation(hgts, this.view.kind === 'set' ? this.view.id : null, extra);
+    })();
+  }
+
+  /** Stores and shows overlays, then fits the last one on the map; `extra` goes after the message. */
+  private addOverlays(files: File[], extra: string[]): void {
+    let said = '';
+    void this.act(async () => {
+      const r = await this.importOverlays(files);
+      if (!r.last) throw new Error(r.text);
+      said = r.text;
+      this.overlays!.zoomTo(r.last, this.panel);
+    }, () => said, extra);
+  }
+
+  /** Stores overlays (busy meanwhile); says what was added and what couldn't be. */
+  private async importOverlays(files: File[]): Promise<{ text: string; last: StoredOverlay | null }> {
+    this.busy = true;
+    try {
+      this.progress(files.length > 1 ? `Adding ${files.length} overlays…` : 'Adding the overlay…');
+      const { added, problems } = await this.overlays!.importFiles(files);
+      const last = added[added.length - 1] ?? null;
+      const what = added.length === 1 ? `“${last!.name}” (${overlaySummary(last!.counts)})` : `${added.length} overlays`;
+      return { text: [added.length ? `Added ${what}.` : '', ...problems].filter(Boolean).join(' '), last };
+    } catch (err) {
+      return { text: err instanceof Error ? err.message : String(err), last: null };
+    } finally {
+      this.busy = false;
     }
-    else this.addElevation(hgts, this.view.kind === 'set' ? this.view.id : null);
   }
 
   private showError(text: string): void {
@@ -186,11 +243,13 @@ export class MapsUi {
     if (!this.panel.hidden && !('renaming' in this.view && this.view.renaming)) this.renderPanel();
   }
 
-  showPanel(open: boolean, view: View = { kind: 'list' }): void {
+  /** Opens (on `tab`, or the one used last) or closes the panel. */
+  showPanel(open: boolean, tab: Tab = this.tab): void {
     this.panel.hidden = !open;
     this.mapsButton.button.setAttribute('aria-expanded', String(open));
     if (!open) return;
-    this.view = view;
+    this.view = { kind: 'list' };
+    this.tab = tab;
     this.message = '';
     this.pick = this.shownPick(); // ticks not applied last time are gone
     this.renderPanel();
@@ -232,7 +291,7 @@ export class MapsUi {
   /** Runs a change: one at a time, its error shown in the panel, then everything read again and
    *  drawn (its message, at least). `after` sees what's stored after a change that worked and
    *  returns its message. */
-  private async act(what: () => Promise<void>, after?: (lib: Library) => string | void): Promise<void> {
+  private async act(what: () => Promise<void>, after?: (lib: Library) => string | void, extra: string[] = []): Promise<void> {
     if (this.stillBusy()) return;
     this.busy = true;
     this.message = '';
@@ -247,7 +306,10 @@ export class MapsUi {
     } finally {
       this.busy = false;
     }
-    const then = ok && after ? (lib: Library) => void (this.message = after(lib) ?? '') : undefined;
+    const then = (lib: Library) => {
+      if (ok && after) this.message = after(lib) ?? '';
+      if (extra.length) this.message = [this.message, ...extra].filter(Boolean).join(' ');
+    };
     await this.reload({ force: true, then }).catch((err) => {
       console.warn('maps', err);
       this.redraw();
@@ -261,13 +323,13 @@ export class MapsUi {
     if (note) note.textContent = text;
   }
 
-  private head(title: string, id: string, onClose: () => void, back?: () => void): El {
+  private head(title: string, id: string, onClose: () => void, back?: () => void, backTo = 'Maps'): El {
     // Nothing to close to when no map is open.
     const close = this.standalone ? null : h('button', { type: 'button', class: 'close', 'aria-label': 'Close', html: CLOSE_ICON });
     if (close) close.onclick = onClose;
     if (back) {
       const b = h('button', { type: 'button', class: 'back', html: BACK_ICON });
-      b.append('Maps');
+      b.append(backTo);
       b.onclick = back;
       return h('div', { class: 'tracks-head' }, b, close);
     }
@@ -308,6 +370,8 @@ export class MapsUi {
     if (!lib) out = [this.head('Maps', 'maps-title', close)];
     else if (v.kind === 'map') out = this.mapDetails(lib, v.id, !!v.renaming, close, back);
     else if (v.kind === 'set') out = this.setDetails(lib, v.id, !!v.renaming, close, back);
+    else if (v.kind === 'overlay') out = this.overlayDetails(v.id, close, back);
+    else if (this.tabbed && this.tab === 'overlays') out = this.overlayList(close);
     else out = this.list(lib, close);
     this.panel.replaceChildren(...out);
   }
@@ -317,6 +381,7 @@ export class MapsUi {
     const pick = this.pick;
     const at = this.host.center();
     const out: Node[] = [this.head('Maps', 'maps-title', close)];
+    if (this.tabbed) out.push(this.tabs());
     if (this.standalone?.error) out.push(h('p', { class: 'note error', role: 'alert', text: this.standalone.error }));
     if (this.standalone?.unreadable) {
       out.push(this.removeAll());
@@ -350,7 +415,7 @@ export class MapsUi {
       } else out.push(h('p', { class: 'note', text: 'Elevation files (.hgt) draw the hills’ shading and give heights along tracks.' }));
     }
     out.push(this.filesButton('+ Add…', 'maps-add', (files) => this.take(files), first ? 'big' : 'add'));
-    out.push(h('p', { class: 'note', text: 'Maps (.img) and elevation files (.hgt), one or several at a time, from this device or iCloud Drive.' }));
+    out.push(h('p', { class: 'note', text: this.overlays ? 'Maps (.img), elevation files (.hgt) and overlays (.kml, .kmz), one or several at a time.' : 'Maps (.img) and elevation files (.hgt), one or several at a time, from this device or iCloud Drive.' }));
     if (!lib.maps.some((m) => m.imgName === FREE_MAP_NAME)) {
       const download = h('button', { type: 'button', class: 'add', id: 'maps-download', text: 'Download the free map of Iceland' });
       download.onclick = () => this.download();
@@ -370,6 +435,82 @@ export class MapsUi {
       apply.onclick = () => this.apply();
       out.push(h('div', { class: 'apply' }, apply));
     }
+    return out;
+  }
+
+  /** Tabs only over the map (the first screen has maps alone). */
+  private get tabbed(): boolean {
+    return !!this.overlays && !this.standalone;
+  }
+
+  private tabs(): El {
+    const bar = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Maps or overlays' });
+    for (const [tab, label] of [['maps', 'Maps'], ['overlays', 'Overlays']] as const) {
+      const b = h('button', { type: 'button', role: 'tab', id: `maps-tab-${tab}`, 'aria-selected': String(this.tab === tab), text: label });
+      b.onclick = () => {
+        if (this.tab === tab) return;
+        this.tab = tab;
+        this.message = '';
+        this.renderPanel();
+        this.panel.querySelector<HTMLElement>(`#maps-tab-${tab}`)?.focus();
+      };
+      bar.append(b);
+    }
+    return bar;
+  }
+
+  /** The Overlays tab: each shown or hidden at once with a tap; ⓘ for its details. */
+  private overlayList(close: () => void): Node[] {
+    const overlays = this.overlays!;
+    const out: Node[] = [this.head('Maps', 'maps-title', close), this.tabs()];
+    if (overlays.loadError) out.push(h('p', { class: 'note error', role: 'alert', text: `The overlays couldn’t be read: ${overlays.loadError}` }));
+    if (!overlays.all.length) out.push(h('p', { class: 'note intro', text: 'Draw extra areas, lines and places over the map from KML files, such as the drone no-fly zones in GPSmap.is’s OVERLAYS folder.' }));
+    const list = h('div', { class: 'overlay-list' });
+    for (const o of overlays.all) {
+      const b = row(o.name, [overlaySummary(o.counts)], { lead: swatch(o.color), trail: h('span', { class: 'eye', 'aria-hidden': 'true', html: o.visible ? EYE_ON : EYE_OFF }) });
+      b.id = `overlay-${o.id}`;
+      b.setAttribute('aria-pressed', String(o.visible));
+      b.setAttribute('aria-label', `${o.name}, ${overlaySummary(o.counts)}: ${o.visible ? 'shown' : 'hidden'}`);
+      b.onclick = () => this.showOverlay(o, !o.visible);
+      const info = h('button', { type: 'button', class: 'info', 'aria-label': `Details for ${o.name}`, html: INFO_ICON });
+      info.onclick = () => this.go({ kind: 'overlay', id: o.id });
+      list.append(h('div', { class: `split overlay-row${o.visible ? '' : ' hidden-overlay'}` }, b, info));
+    }
+    if (overlays.all.length) out.push(list);
+    out.push(this.status());
+    out.push(this.filesButton('+ Add…', 'maps-add', (files) => this.take(files), 'add'));
+    out.push(h('p', { class: 'note', text: 'Overlays (.kml, .kmz), such as GPSmap.is’s OVERLAYS folder. Maps and elevation files go to the Maps tab.' }));
+    return out;
+  }
+
+  private showOverlay(o: StoredOverlay, visible: boolean): void {
+    this.message = '';
+    const p = this.overlays!.setVisible(o, visible); // draws the list again at once
+    this.panel.querySelector<HTMLElement>(`#overlay-${CSS.escape(o.id)}`)?.focus();
+    p.catch((err) => this.showError(err instanceof Error ? err.message : String(err)));
+  }
+
+  private overlayDetails(id: string, close: () => void, back: () => void): Node[] {
+    const o = this.overlays?.all.find((x) => x.id === id);
+    const out: Node[] = [this.head('', '', close, back, 'Overlays')];
+    if (!o) return [...out, h('p', { class: 'note', text: 'This overlay is no longer stored.' })];
+    out.push(h('h2', { class: 'title', tabindex: '-1', id: 'maps-title' }, swatch(o.color), o.name));
+    out.push(h('p', { class: 'note', text: [overlaySummary(o.counts), `added ${dateText(o.added)}`, o.visible ? 'shown' : 'hidden'].join(' · ') }));
+    const where = h('button', { type: 'button', class: 'item link', id: 'overlay-where', text: 'Show where it is' });
+    where.onclick = () => {
+      if (!o.visible) this.showOverlay(o, true);
+      this.showPanel(false);
+      this.overlays!.zoomTo(o, this.panel);
+    };
+    const remove = h('button', { type: 'button', class: 'item danger', id: 'overlay-remove', text: `Remove from ${device()}` });
+    remove.onclick = () => {
+      if (!confirm(`Remove “${o.name}” from ${device()}? You will need the file to add it again.`)) return;
+      void this.act(async () => {
+        await this.overlays!.remove(o.id);
+        this.view = { kind: 'list' };
+      }, () => `Removed “${o.name}”.`);
+    };
+    out.push(where, remove, this.status());
     return out;
   }
 
@@ -420,7 +561,7 @@ export class MapsUi {
   /** Adds maps one after another (never side by side: the iPhone's memory) in one `host.add`, so
    *  the map shown is closed and opened again once. One that fails is named and the rest still
    *  added; elevation files `hgt` go with the first one added. The last one added is ticked. */
-  private storeMaps(jobs: { name: string; store: StoreMap }[], hgt: File[] = []): void {
+  private storeMaps(jobs: { name: string; store: StoreMap }[], hgt: File[] = [], extra: string[] = []): void {
     const ids: string[] = [];
     const failed: string[] = [];
     void this.act(async () => {
@@ -444,7 +585,7 @@ export class MapsUi {
       this.pick = { map: id, set: this.effectiveId(id) };
       const added = ids.length === 1 ? `Added “${lib.maps.find((m) => m.id === id)?.name ?? 'the map'}”.` : `Added ${ids.length} maps.`;
       return [added, ...failed].join(' ');
-    });
+    }, extra);
   }
 
   private download(): void {
@@ -496,7 +637,7 @@ export class MapsUi {
 
   /** Stores elevation files as a new set (ticked when it covers the ticked map) or adds them to set
    *  `into`. */
-  private addElevation(files: File[], into: string | null): void {
+  private addElevation(files: File[], into: string | null, extra: string[] = []): void {
     let id = '';
     void this.act(async () => {
       id = await importElevation(files, into, (m) => this.progress(m));
@@ -508,10 +649,10 @@ export class MapsUi {
       const m = lib.maps.find((x) => x.id === this.pick?.map);
       if (this.pick && s && m?.bounds && coverage(s, m.bounds) > 0) this.pick.set = id;
       return 'Elevation files stored.';
-    });
+    }, extra);
   }
 
-  /** The name field of Tracks and Saved places (an unchanged name or Escape cancels). */
+  /** The name field for a map or an elevation set (an unchanged name or Escape cancels). */
   private renameForm(current: string, save: (name: string) => Promise<void>, cancel: () => void): El {
     const box = h('div', { class: 'rename' });
     editName(box, current, (name) => void save(name), cancel);

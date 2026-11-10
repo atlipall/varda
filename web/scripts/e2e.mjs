@@ -377,54 +377,80 @@ try {
   console.log('track rename ok');
   await page.click('#tracks-close');
 
-  // 3c'. Overlays: GPSmap.is 2026's three KML files and a file that isn't KML; areas under the map's
-  // names, their own colours; the eye hides one; all deleted again so later steps see no overlays.
+  // 3c'. Overlays, in the Maps panel's Overlays tab (no longer in the ⋯ menu): GPSmap.is 2026's
+  // three KML files and a file that isn't one, from the one Add…; areas under the map's names,
+  // their own colours; a tap hides one; "Show where it is"; all removed again so later steps see
+  // no overlays.
+  const menuItems = await page.$$eval('#menu button', (bs) => bs.map((b) => b.textContent));
+  if (menuItems.some((t) => /^(Maps|Overlays)$/.test(t))) fail(`the ⋯ menu still has Maps or Overlays: ${menuItems}`);
   const overlayDir = REPO + 'map-files/GPSmap.is 2026.20 Android/OVERLAYS - Add content to OVERLAY folder/';
   if (existsSync(overlayDir)) {
     const kmls = readdirSync(overlayDir).filter((f) => f.endsWith('.kml')).sort().map((f) => overlayDir + f);
-    await page.click('#menu-button');
-    await page.click('#overlays-open');
-    if (await page.evaluate(() => document.activeElement?.id !== 'overlays-title')) fail('the Overlays panel did not take focus');
-    await (await page.$('#overlay-file')).uploadFile(...kmls, gpxPath);
-    await page.waitForFunction((n) => document.querySelectorAll('#overlay-list .overlay').length === n, { timeout: 15_000 }, kmls.length).catch(() => fail('overlays not listed'));
+    const overlayRows = () => page.$$eval('#maps-panel .overlay-row', (rs) => rs.length);
+    await page.click('#maps-button');
+    await page.waitForSelector('#maps-panel:not([hidden]) #maps-tab-overlays', { timeout: 10_000 });
+    await page.click('#maps-tab-overlays');
+    await page.waitForSelector('#maps-tab-overlays[aria-selected="true"]', { timeout: 5_000 });
+    await (await page.$('#maps-add-input')).uploadFile(...kmls, gpxPath);
+    await page.waitForFunction((n) => document.querySelectorAll('#maps-panel .overlay-row').length === n && /Added/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 15_000 }, kmls.length)
+      .catch(async () => fail(`overlays not listed: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
     const ov = await page.evaluate(() => {
       const m = window.__app.map;
       const ids = m.getStyle().layers.map((l) => l.id);
       const firstBaseSymbol = m.getStyle().layers.find((l) => l.type === 'symbol' && !l.id.startsWith('overlay') && !l.id.startsWith('gpx')).id;
       return {
-        rows: [...document.querySelectorAll('#overlay-list .overlay')].map((li) => `${li.querySelector('.name').textContent}: ${li.querySelector('.stats').textContent}`),
-        error: document.querySelector('#overlays-error').textContent,
+        rows: [...document.querySelectorAll('#maps-panel .overlay-row')].map((r) => `${r.querySelector('.n').textContent}: ${r.querySelector('.s').textContent}`),
+        message: document.querySelector('#maps-panel .status').textContent,
         features: m.getStyle().sources.overlays.data.features.length,
         fillUnderNames: ids.indexOf('overlay-fill') < ids.indexOf(firstBaseSymbol),
         pointsUnderTracks: ids.indexOf('overlay-point') < ids.indexOf('gpx-casing'),
       };
     });
-    console.log('overlays:', ov.rows.join('; '));
+    console.log('overlays:', ov.rows.join('; '), '|', ov.message);
     if (!ov.rows.includes('GPSmap.is-Listaverk-2026-02: 195 places') || !ov.rows.includes('GPSmap.is-Droneban-2026-01: 139 areas')) fail(`overlay rows: ${ov.rows}`);
-    if (!/laugavegur-start\.gpx: Pick a KML or KMZ file/.test(ov.error)) fail(`bad overlay error: ${ov.error}`);
+    if (!/Added 3 overlays\..*“laugavegur-start\.gpx” was left out/.test(ov.message)) fail(`overlay message: ${ov.message}`);
     if (ov.features < 195 + 139 + 23) fail(`overlay features on the map: ${ov.features}`);
     if (!ov.fillUnderNames || !ov.pointsUnderTracks) fail(`overlay layer order: ${JSON.stringify(ov)}`);
-    await page.click('#overlays-close');
+    await page.click('#maps-panel .close');
     await page.evaluate(() => new Promise((r) => { const m = window.__app.map; m.jumpTo({ center: [-21.935, 64.144], zoom: 14.5 }); m.once('idle', r); }));
     await page.screenshot({ path: `${OUT}overlays-reykjavik.png` });
     await page.evaluate(() => new Promise((r) => { const m = window.__app.map; m.jumpTo({ center: [-21.2, 64.1], zoom: 8 }); m.once('idle', r); }));
     await page.screenshot({ path: `${OUT}overlays-drones.png` });
-    await page.click('#menu-button');
-    await page.click('#overlays-open');
+    // The panel opens again on the tab used last.
+    await page.click('#maps-button');
+    await page.waitForSelector('#maps-panel:not([hidden]) .overlay-row', { timeout: 10_000 }).catch(() => fail('the Maps panel did not open on the Overlays tab'));
     await page.screenshot({ path: `${OUT}overlays-panel.png` });
-    // The eye hides an overlay's shapes and remembers it.
-    await page.click('#overlay-list .overlay:nth-child(1) .track-eye');
+    // A tap on the row hides an overlay's shapes at once and remembers it.
+    await page.click('#maps-panel .overlay-row:nth-child(1) .row');
     await page.waitForFunction((n) => window.__app.map.getStyle().sources.overlays.data.features.length < n, { timeout: 5_000 }, ov.features).catch(() => {});
-    const hidden = await page.evaluate(() => ({ features: window.__app.map.getStyle().sources.overlays.data.features.length, visible: window.__app.overlays.all.map((o) => o.visible) }));
-    if (hidden.features >= ov.features || hidden.visible[0] !== false) fail(`hiding an overlay: ${JSON.stringify(hidden)}`);
+    const hidden = await page.evaluate(() => ({ features: window.__app.map.getStyle().sources.overlays.data.features.length, visible: window.__app.overlays.all.map((o) => o.visible), pressed: document.querySelector('#maps-panel .overlay-row .row').getAttribute('aria-pressed') }));
+    if (hidden.features >= ov.features || hidden.visible[0] !== false || hidden.pressed !== 'false') fail(`hiding an overlay: ${JSON.stringify(hidden)}`);
+    if (!(await page.$eval('#maps-apply', (b) => b.disabled).catch(() => true))) fail('hiding an overlay lit up Apply');
+    // ⓘ → Show where it is: shown again, the panel closed and the map over it.
+    await page.click('#maps-panel .overlay-row:nth-child(1) .info');
+    await page.waitForSelector('#overlay-where', { timeout: 5_000 });
+    await page.screenshot({ path: `${OUT}overlays-details.png` });
+    await page.click('#overlay-where');
+    await page.waitForSelector('#maps-panel[hidden]', { timeout: 5_000 }).catch(() => fail('Show where it is left the panel open'));
+    await page.waitForFunction(() => window.__app.overlays.all[0].visible, { timeout: 5_000 }).catch(() => fail('Show where it is did not show the overlay'));
     for (let i = 0; i < kmls.length; i++) {
-      await page.click('#overlay-list .overlay:nth-child(1) .track-delete');
-      await page.click('#overlay-list .overlay:nth-child(1) .track-delete');
-      await page.waitForFunction((n) => document.querySelectorAll('#overlay-list .overlay').length === n, { timeout: 5_000 }, kmls.length - i - 1).catch(() => fail('overlay not deleted'));
+      await page.click('#maps-button');
+      await page.waitForSelector('#maps-panel:not([hidden]) .overlay-row .info', { timeout: 5_000 });
+      await page.click('#maps-panel .overlay-row:nth-child(1) .info');
+      await page.waitForSelector('#overlay-remove', { timeout: 5_000 });
+      page.once('dialog', (d) => d.accept());
+      await page.click('#overlay-remove');
+      await page.waitForFunction((n) => document.querySelectorAll('#maps-panel .overlay-row').length === n && /Removed/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 5_000 }, kmls.length - i - 1).catch(() => fail('overlay not removed'));
+      // In the page: the panel may be drawn again between finding ✕ and clicking it.
+      await page.evaluate(() => document.querySelector('#maps-panel .close').click());
     }
     const left = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('garmin-map'); r.onsuccess = () => { const tx = r.result.transaction(['overlays', 'overlayData']); const a = tx.objectStore('overlays').count(); const b = tx.objectStore('overlayData').count(); tx.oncomplete = () => res(a.result + b.result); }; }));
-    if (left !== 0 || (await page.$eval('#overlays-empty', (e) => e.hidden))) fail(`after deleting overlays: ${left} stored`);
-    await page.click('#overlays-close');
+    if (left !== 0) fail(`after removing overlays: ${left} stored`);
+    // Back to the Maps tab for the steps after.
+    await page.click('#maps-button');
+    await page.waitForSelector('#maps-panel:not([hidden]) .intro', { timeout: 5_000 }).catch(() => fail('no empty-list note on the Overlays tab'));
+    await page.click('#maps-tab-maps');
+    await page.click('#maps-panel .close');
     console.log('overlays ok');
   } else console.log('overlays skipped: no GPSmap.is 2026 folder');
 
@@ -1558,8 +1584,7 @@ try {
   console.log('hillshading none and back ok');
 
   // Details: rename, then remove the map shown (the other one is shown instead).
-  await page.click('#menu-button');
-  await page.click('#maps-open');
+  await page.click('#maps-button');
   await page.waitForSelector('#maps-panel:not([hidden]) .map-row', { timeout: 10_000 });
   await page.evaluate(() => [...document.querySelectorAll('#maps-panel .map-row')].find((r) => r.textContent.includes('Focused')).querySelector('.info').click());
   await page.waitForSelector('#map-rename', { timeout: 10_000 });
