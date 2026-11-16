@@ -1754,6 +1754,10 @@ try {
   await page.click('#menu-button');
   await page.click('#settings-open');
   if (await page.$eval('#reload-app', (e) => e.hidden)) fail('no "Reload from the server" in the Android app');
+  // On a head unit's short screen the panels take its whole height, over the buttons.
+  const carPanel = await page.$eval('#settings', (e) => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), room: innerHeight - 12, scrolls: e.scrollHeight > e.clientHeight }; });
+  if (carPanel.top !== 12 || carPanel.bottom > carPanel.room || (carPanel.scrolls && carPanel.bottom < carPanel.room - 1)) fail(`car-sized panel: ${JSON.stringify(carPanel)}`);
+  await page.screenshot({ path: `${OUT}car-settings.png` });
   await Promise.all([page.waitForNavigation({ timeout: 60_000 }), page.click('#reload-app')]);
   await waitReady();
   console.log('reload from the server ok');

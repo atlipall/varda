@@ -524,6 +524,9 @@
       body.car-size {
         & :is(#topbar, #menu-button, #menu, #badge, #update, #tracks, #saved, #photos, #sync-panel, #diag-panel, #settings, #maps-panel, #trip-pill),
         & #map :is(.maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left, .place-menu .maplibregl-popup-content) { zoom: 1.5; }
+        /* A head unit's screen is short: the panels take its whole height, over the buttons (each
+           has its ✕). Lengths here are zoomed, percentages aren't: 8px is 12 px on screen. */
+        & :is(#tracks, #saved, #photos, #sync-panel, #diag-panel, #settings, #maps-panel:not(.standalone)) { top: calc(env(safe-area-inset-top) + 8px); max-height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px); }
         /* The cards beside the map less so (at 1.5 the route and guidance cards took half the screen),
            and the notes that show in their place at the same size, so neither covers the other. */
         & :is(#route-card, #here-card, #track-card, #trip-card, #here-toast, #nav-undo, #trip-note, #photo-note, #photo-check, #sync-photos-ask, #pv-sheet, #pv-top, .pv-step) { zoom: 1.25; }
