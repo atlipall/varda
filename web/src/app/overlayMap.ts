@@ -1,5 +1,6 @@
 import type * as maplibregl from 'maplibre-gl';
-import { readOverlayFile, type OverlayFeature } from '../overlays/kml';
+import type { OverlayFeature } from '../overlays/kml';
+import { overlayJobs } from '../overlays/read';
 import { addOverlay, deleteOverlay, getOverlayFeatures, listOverlays, putOverlay, type StoredOverlay } from '../overlays/store';
 import { newId } from '../saved/saved';
 import { fitClearOf } from './listButtons';
@@ -11,10 +12,11 @@ export function overlaySummary(c: StoredOverlay['counts']): string {
 }
 
 /**
- * KML overlays (such as GPSmap.is's drone no-fly zones, parking zones and artworks) drawn over the
- * map in their own colours; listed in the Maps panel's Overlays tab. Areas and lines go under the
- * map's names so the names stay readable; points and their names go on top, under the tracks. Only
- * the visible overlays' shapes are read from storage and held. Kept on this device only.
+ * KML overlays (such as GPSmap.is's drone no-fly zones, parking zones and artworks) and Shapefiles
+ * (such as Óbyggðanefnd's þjóðlendur) drawn over the map in their own colours; listed in the Maps
+ * panel's Overlays tab. Areas and lines go under the map's names so the names stay readable; points
+ * and their names go on top, under the tracks. Only the visible overlays' shapes are read from
+ * storage and held. Kept on this device only.
  */
 export class OverlayMap {
   private overlays: StoredOverlay[] = [];
@@ -72,21 +74,23 @@ export class OverlayMap {
     return this.overlays;
   }
 
-  /** Stores and shows KML/KMZ files; a file that can't be read is named in `problems`. */
+  /** Stores and shows KML/KMZ files and Shapefiles (their files together, or zipped); what can't
+   *  be read is named in `problems`. */
   async importFiles(files: File[]): Promise<{ added: StoredOverlay[]; problems: string[] }> {
     await this.loaded;
     const added: StoredOverlay[] = [];
     const problems: string[] = [];
-    for (const file of files) {
+    for (const job of overlayJobs(files)) {
       try {
-        const { features, ...rest } = await readOverlayFile(file.name, new Uint8Array(await file.arrayBuffer()));
-        const o: StoredOverlay = { ...rest, id: newId(), visible: true, added: Date.now() };
-        await addOverlay(o, features);
-        this.overlays.push(o);
-        this.shapes.set(o.id, features);
-        added.push(o);
+        for (const { features, ...rest } of await job.read()) {
+          const o: StoredOverlay = { ...rest, id: newId(), visible: true, added: Date.now() };
+          await addOverlay(o, features);
+          this.overlays.push(o);
+          this.shapes.set(o.id, features);
+          added.push(o);
+        }
       } catch (err) {
-        problems.push(`“${file.name}” couldn’t be added: ${err instanceof Error ? err.message : String(err)}`);
+        problems.push(`“${job.label}” couldn’t be added: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     if (added.length) {

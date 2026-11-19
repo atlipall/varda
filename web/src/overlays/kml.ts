@@ -32,6 +32,14 @@ export interface Overlay {
   bounds: [number, number, number, number];
   /** The colour most of it is drawn in (the list's swatch). */
   color: string;
+  /** What its colours mean, when they stand for a field's values (a Shapefile's kinds). */
+  legend?: OverlayLegend;
+}
+
+export interface OverlayLegend {
+  /** The attribute the colours come from, such as "tegund2". */
+  field: string;
+  items: Array<{ value: string; color: string }>;
 }
 
 const DEFAULT_COLOR = '#c2410c';
