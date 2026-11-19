@@ -279,3 +279,29 @@ describe.skipIf(!existsSync(TH + '.shp'))("Óbyggðanefnd's þjóðlendur", () =
     expect(points).toBeLessThan(228_000 * 0.7); // simplified
   });
 });
+
+describe('axis order', () => {
+  const WFS2_4326 = 'GEOGCS["WGS 84", DATUM["World Geodetic System 1984", SPHEROID["WGS 84", 6378137.0, 298.257223563, AUTHORITY["EPSG","7030"]], AUTHORITY["EPSG","6326"]], PRIMEM["Greenwich", 0.0, AUTHORITY["EPSG","8901"]], UNIT["degree", 0.017453292519943295], AXIS["Geodetic latitude", NORTH], AXIS["Geodetic longitude", EAST], AUTHORITY["EPSG","4326"]]';
+  test("GeoServer's WFS 2.0 degrees are latitude first, as its .prj says; ISN93's grid isn't swapped by its GEOGCS's axes", () => {
+    expect(fromWkt(WFS2_4326)!(64.33, -19.66)).toEqual([-19.66, 64.33]);
+    expect(fromWkt('GEOGCS["WGS 84",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]')!(-19.66, 64.33)).toEqual([-19.66, 64.33]);
+    const noGridAxes = GEOSERVER_PRJ.replace(', AXIS["Easting", EAST], AXIS["Northing", NORTH]', '');
+    near(fromWkt(noGridAxes)!(...HMS_ISN93), HMS_WGS84);
+  });
+
+  test('a latitude-first point file comes out over Iceland', () => {
+    const b = Buffer.alloc(100 + 8 + 20);
+    b.writeInt32BE(9994, 0);
+    b.writeInt32BE(b.length / 2, 24);
+    b.writeInt32LE(1000, 28);
+    b.writeInt32LE(1, 32);
+    [64.33, -19.66, 64.33, -19.66].forEach((x, i) => b.writeDoubleLE(x, 36 + i * 8));
+    b.writeInt32BE(1, 100);
+    b.writeInt32BE(10, 104);
+    b.writeInt32LE(1, 108);
+    b.writeDoubleLE(64.33, 112);
+    b.writeDoubleLE(-19.66, 120);
+    const o = parseShapefile({ shp: new Uint8Array(b), prj: WFS2_4326 }, 'Skálar');
+    expect(o.features[0].geometry).toEqual({ type: 'Point', coordinates: [-19.66, 64.33] });
+  });
+});

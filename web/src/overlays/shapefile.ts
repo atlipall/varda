@@ -139,7 +139,9 @@ type Shape = { type: 'points'; points: Ring } | { type: 'lines'; lines: Ring[] }
 /** The shapes in a .shp, in lon/lat, by record (null for a null shape). */
 function readShapes(shp: Uint8Array, unproject: Unproject): Array<Shape | null> {
   const v = new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
-  const tol = unproject === lonLat ? SIMPLIFY_DEGREES : SIMPLIFY_METRES;
+  // Degrees when the file's extent fits in them (whatever order its axes are in).
+  const extent = [36, 44, 52, 60].map((o) => Math.abs(v.getFloat64(o, true)));
+  const tol = extent.every((x) => x <= 360) ? SIMPLIFY_DEGREES : SIMPLIFY_METRES;
   const project = (r: Ring): Ring => r.map(([x, y]) => unproject(x, y));
   const simplified = (r: Ring, min: number): Ring => {
     const s = simplifyLine(r, tol);

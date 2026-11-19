@@ -75,8 +75,29 @@ export const utmNorth = (zone: number): Unproject => tm({ lon0: zone * 6 - 183, 
 /** Longitude/latitude already: nothing to do. */
 export const lonLat: Unproject = (x, y) => [x, y];
 
-/** The projection a Shapefile's .prj (WKT) describes; null when it isn't one this app knows. */
+/** The projection a Shapefile's .prj (WKT) describes; null when it isn't one this app knows.
+ *  Coordinates are taken in the order its own axes give: GeoServer's WFS 2.0 downloads in EPSG:4326
+ *  say "AXIS["Geodetic latitude", NORTH]" first and are written latitude first. */
 export function fromWkt(wkt: string): Unproject | null {
+  const u = projectionOf(wkt);
+  const axes = [...ownPart(wkt).matchAll(/AXIS\s*\[\s*"([^"]*)"\s*,\s*(\w+)/gi)];
+  const northFirst = axes.length === 2 && (/^north$/i.test(axes[0][2]) || /latitude|northing/i.test(axes[0][1]));
+  return u && northFirst ? (x, y) => u(y, x) : u;
+}
+
+/** A PROJCS's WKT after its GEOGCS (whose axes are the geographic ones, not the grid's). */
+function ownPart(wkt: string): string {
+  const g = wkt.search(/GEOGCS\s*\[/i);
+  if (!/^\s*PROJCS/i.test(wkt) || g < 0) return wkt;
+  let depth = 0;
+  for (let i = wkt.indexOf('[', g); i < wkt.length; i++) {
+    if (wkt[i] === '[') depth++;
+    else if (wkt[i] === ']' && --depth === 0) return wkt.slice(i + 1);
+  }
+  return '';
+}
+
+function projectionOf(wkt: string): Unproject | null {
   const w = wkt.replace(/\s+/g, ' ');
   if (!/^\s*PROJCS/i.test(w)) return /^\s*GEOGCS/i.test(w) ? lonLat : null;
   const param = (...names: string[]) => {
