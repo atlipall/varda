@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <!-- Only this site's own code runs; the network is reached only for Google sign-in and Drive sync
          (optional, after the user turns it on). ws: is the dev server's live reload. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://auth.vardamaps.app https://download.vardamaps.app ws:; frame-src https://accounts.google.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://accounts.google.com; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://auth.vardamaps.app https://download.vardamaps.app https://ogc.gis.is ws:; frame-src https://accounts.google.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://accounts.google.com; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'self'" />
     <!-- resizes-content: an on-screen keyboard (Android) shrinks the page to the space above it, so
          nothing is under the keyboard and Chrome never slides the view up past the search box. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
@@ -318,6 +318,14 @@
       .maps-ui .swatch { flex: none; display: inline-block; width: 14px; height: 14px; margin: 0 4px; border-radius: 50%; box-shadow: inset 0 0 0 1px #0002; }
       .maps-ui .title .swatch { margin: 0 10px 0 0; vertical-align: 1px; }
       .maps-ui .overlay-list > .split:first-child { border-top: 0; }
+      .maps-ui .ogc-search { width: 100%; min-height: 44px; margin: 6px 0 2px; padding: 0 12px; border: 0; border-radius: 10px; background: #eef0f3; color: var(--ink); font: inherit; font-size: max(16px, calc(16 * var(--px))); }
+      .maps-ui .ogc-group > .split:first-child { border-top: 0; }
+      .maps-ui .row.static { cursor: default; }
+      .maps-ui .get { flex: none; align-self: center; min-width: 64px; min-height: 44px; padding: 0 14px; border: 0; border-radius: 22px; background: #eef0f3; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+      .maps-ui .get:disabled { color: #9aa1aa; cursor: default; }
+      .maps-ui .got { flex: none; align-self: center; padding: 0 4px; color: #1b6e3a; font-weight: 600; }
+      .maps-ui .got.busy { color: #5d6673; font-weight: 400; font-size: calc(13.5 * var(--px)); }
+      .maps-ui .note.offline { padding: 9px 12px; border-radius: 10px; background: #fff4e0; color: #7a4a00; }
       .maps-ui .legend { list-style: none; margin: 4px 0 12px; padding: 0; }
       .maps-ui .legend li { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
       .maps-ui .eye { flex: none; width: 32px; display: grid; place-items: center; color: var(--accent); }

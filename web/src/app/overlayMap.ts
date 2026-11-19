@@ -1,7 +1,8 @@
 import type * as maplibregl from 'maplibre-gl';
-import type { OverlayFeature } from '../overlays/kml';
-import { overlayJobs } from '../overlays/read';
-import { addOverlay, deleteOverlay, getOverlayFeatures, listOverlays, putOverlay, type StoredOverlay } from '../overlays/store';
+import type { Overlay, OverlayFeature } from '../overlays/kml';
+import { downloadLayer, pickedLayer, type OgcLayer } from '../overlays/ogc';
+import { overlayJobs, readZip } from '../overlays/read';
+import { addOverlay, deleteOverlay, getOverlayFeatures, listOverlays, putOverlay, type OverlaySource, type StoredOverlay } from '../overlays/store';
 import { newId } from '../saved/saved';
 import { fitClearOf } from './listButtons';
 
@@ -82,13 +83,7 @@ export class OverlayMap {
     const problems: string[] = [];
     for (const job of overlayJobs(files)) {
       try {
-        for (const { features, ...rest } of await job.read()) {
-          const o: StoredOverlay = { ...rest, id: newId(), visible: true, added: Date.now() };
-          await addOverlay(o, features);
-          this.overlays.push(o);
-          this.shapes.set(o.id, features);
-          added.push(o);
-        }
+        for (const overlay of await job.read()) added.push(await this.keep(overlay));
       } catch (err) {
         problems.push(`“${job.label}” couldn’t be added: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -98,6 +93,56 @@ export class OverlayMap {
       this.onChange();
     }
     return { added, problems };
+  }
+
+  /** Stores and lists a read overlay, shown (drawn by the caller). */
+  private async keep({ features, ...rest }: Overlay, source?: OverlaySource): Promise<StoredOverlay> {
+    const o: StoredOverlay = { ...rest, id: newId(), visible: true, added: Date.now(), ...(source ? { source } : {}) };
+    await addOverlay(o, features);
+    this.overlays.push(o);
+    this.shapes.set(o.id, features);
+    return o;
+  }
+
+  /** Reads layer `layer` from ogc.gis.is, named and coloured as the picked list says. */
+  private async fetchLayer(layer: OgcLayer, onBytes?: (n: number) => void): Promise<Overlay> {
+    const bytes = await downloadLayer(layer.id, onBytes);
+    const [first] = await readZip(`${layer.title}.zip`, bytes, layer.fields);
+    if (!first) throw new Error('The layer came without any shapes.');
+    return { ...first, name: layer.title };
+  }
+
+  /** Downloads a layer from ogc.gis.is and adds it, shown. Rejects with the reason it couldn't. */
+  async download(layer: OgcLayer, onBytes?: (n: number) => void): Promise<StoredOverlay> {
+    await this.loaded;
+    const o = await this.keep(await this.fetchLayer(layer, onBytes), { ogc: layer.id, downloaded: Date.now() });
+    this.draw();
+    this.onChange();
+    return o;
+  }
+
+  /** The overlay downloaded from layer `id`, if there is one. */
+  fromLayer(id: string): StoredOverlay | undefined {
+    return this.overlays.find((o) => o.source?.ogc === id);
+  }
+
+  /** Downloads overlay `o`'s layer again and puts it in its place (its name, list place and
+   *  visibility kept). Resolves to its counts before. */
+  async update(o: StoredOverlay, onBytes?: (n: number) => void): Promise<StoredOverlay['counts']> {
+    if (!o.source) throw new Error('This overlay wasn’t downloaded from ogc.gis.is.');
+    const layer = pickedLayer(o.source.ogc) ?? { id: o.source.ogc, title: o.name, agency: '' };
+    const { features, counts, bounds, color, legend } = await this.fetchLayer(layer, onBytes);
+    const before = o.counts;
+    if (!this.overlays.includes(o)) return before; // removed meanwhile
+    Object.assign(o, { counts, bounds, color, legend, source: { ...o.source, downloaded: Date.now() } });
+    if (!legend) delete o.legend;
+    await addOverlay(o, features);
+    if (o.visible) {
+      this.shapes.set(o.id, features);
+      this.draw();
+    }
+    this.onChange();
+    return before;
   }
 
   /** Fits overlay `o` in view, clear of `panel` while it's open. */

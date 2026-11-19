@@ -6,6 +6,7 @@ import { acceptDrops, extensions } from '../ui/drop';
 import { editName } from '../ui/rename';
 import { overlaySummary, type OverlayMap } from './overlayMap';
 import { EYE_OFF, EYE_ON } from './listButtons';
+import { agencyOf, PICKED, pickedLayer, searchLayers, serverLayers, type OgcLayer } from '../overlays/ogc';
 import { OVERLAY_EXTENSIONS } from '../overlays/read';
 import type { StoredOverlay } from '../overlays/store';
 
@@ -80,6 +81,12 @@ const lower = (s: string) => s.replace(/^./, (x) => x.toLowerCase());
 /** An overlay's colour dot. */
 const swatch = (color: string) => h('span', { class: 'swatch', style: `background:${color}`, 'aria-hidden': 'true' });
 const tick = () => h('span', { class: 'tick', 'aria-hidden': 'true', text: '✓' });
+/** A download's size so far: "340 kB", "4.5 MB" (finer than formatBytes, which is for maps). */
+const sizeText = (n: number) => (n < 1e6 ? `${Math.max(1, Math.round(n / 1e3))} kB` : `${(n / 1e6).toFixed(1)} MB`);
+/** Where ogc.gis.is's layers are of use: a map reaching into Iceland (west, south, east, north). */
+const ICELAND: [number, number, number, number] = [-24.6, 63.2, -13.4, 66.6];
+/** Search results drawn at most (the rest are found by typing more). */
+const MAX_FOUND = 50;
 
 /** The map button, top right under ⋯: opens the Maps panel. */
 export class MapsButton implements maplibregl.IControl {
@@ -99,7 +106,7 @@ export class MapsButton implements maplibregl.IControl {
   }
 }
 
-type View = { kind: 'list' } | { kind: 'map'; id: string; renaming?: boolean } | { kind: 'set'; id: string; renaming?: boolean } | { kind: 'overlay'; id: string };
+type View = { kind: 'list' } | { kind: 'map'; id: string; renaming?: boolean } | { kind: 'set'; id: string; renaming?: boolean } | { kind: 'overlay'; id: string } | { kind: 'ogc' };
 type Tab = 'maps' | 'overlays';
 
 /** The map ticked in the list and the elevation set ticked for it (null: none). Nothing is shown
@@ -138,6 +145,13 @@ export class MapsUi {
   private busy = false;
   /** The overlays, once the map is open (none on the first screen). */
   private overlays: OverlayMap | null = null;
+  /** Get overlays (ogc.gis.is): what's typed in its search, the server's list once read (or why
+   *  it couldn't be), and the layer downloading with how much has come. */
+  private ogcQuery = '';
+  private ogcAll: OgcLayer[] | null = null;
+  private ogcError = '';
+  private ogcLoading = false;
+  private fetching: { id: string; bytes: number } | null = null;
   /** The tab shown; the panel opens on the one used last. */
   private tab: Tab = 'maps';
   private message = '';
@@ -149,6 +163,8 @@ export class MapsUi {
     // Nothing behind the standalone panel to go back to.
     this.panel.addEventListener('keydown', (e) => e.key === 'Escape' && !this.standalone && this.showPanel(false));
     acceptDrops(this.panel, (files) => this.take(files), extensions('img', 'hgt', ...OVERLAY_EXTENSIONS));
+    // Get overlays' buttons follow the connection.
+    for (const e of ['online', 'offline']) window.addEventListener(e, () => this.drawOgc());
   }
 
   /** The overlays, listed in their own tab from now on. */
@@ -338,7 +354,7 @@ export class MapsUi {
   }
 
   private status(): El {
-    return h('p', { class: `note status${this.messageIsError ? ' error' : ''}`, role: 'status', text: this.message });
+    return h('p', { class: `note status${this.messageIsError ? ' error' : ''}`, role: 'status', tabindex: '-1', text: this.message });
   }
 
   /** The map shown and its set (an id matching no map when none is open). */
@@ -372,6 +388,7 @@ export class MapsUi {
     else if (v.kind === 'map') out = this.mapDetails(lib, v.id, !!v.renaming, close, back);
     else if (v.kind === 'set') out = this.setDetails(lib, v.id, !!v.renaming, close, back);
     else if (v.kind === 'overlay') out = this.overlayDetails(v.id, close, back);
+    else if (v.kind === 'ogc') out = this.ogcList(close, back);
     else if (this.tabbed && this.tab === 'overlays') out = this.overlayList(close);
     else out = this.list(lib, close);
     this.panel.replaceChildren(...out);
@@ -480,8 +497,123 @@ export class MapsUi {
     if (overlays.all.length) out.push(list);
     out.push(this.status());
     out.push(this.filesButton('+ Add…', 'maps-add', (files) => this.take(files), 'add'));
+    const ogc = this.showsIceland();
+    if (ogc) {
+      const get = h('button', { type: 'button', class: 'add', id: 'ogc-open', text: 'Get overlays from ogc.gis.is…' });
+      get.onclick = () => this.go({ kind: 'ogc' });
+      out.push(get);
+    }
     out.push(h('p', { class: 'note', text: 'Overlays (.kml, .kmz), such as GPSmap.is’s OVERLAYS folder, and Shapefiles: a .zip, or the .shp, .dbf and .prj together. Maps and elevation files go to the Maps tab.' }));
+    if (ogc) out.push(h('p', { class: 'note', text: 'Or ready-made ones from Iceland’s public map server: huts, rest stops, crevasses, hazard zones and more. Getting them needs a connection; they work offline after.' }));
     return out;
+  }
+
+  /** Whether the map shown reaches into Iceland (ogc.gis.is's layers are of use there only). */
+  private showsIceland(): boolean {
+    const b = this.lib?.maps.find((m) => m.id === this.cur.id)?.bounds;
+    const [w, s, e, n] = ICELAND;
+    return !!b && b[0] < e && b[2] > w && b[1] < n && b[3] > s;
+  }
+
+  /** Get overlays: the picked layers by group, or what the search finds among all the server's. */
+  private ogcList(close: () => void, back: () => void): Node[] {
+    const out: Node[] = [this.head('', '', close, back, 'Overlays')];
+    out.push(h('h2', { class: 'title', tabindex: '-1', id: 'maps-title', text: 'Get overlays' }));
+    const search = h('input', { type: 'search', id: 'ogc-search', class: 'ogc-search', placeholder: 'Search all layers', 'aria-label': 'Search all layers on ogc.gis.is', autocomplete: 'off', enterkeyhint: 'search' }) as HTMLInputElement;
+    search.value = this.ogcQuery;
+    search.oninput = () => {
+      this.ogcQuery = search.value;
+      if (this.ogcError && navigator.onLine) this.ogcError = ''; // typing again tries the server again
+      this.drawOgc();
+    };
+    const offline = h('p', { class: 'note offline', role: 'status', text: 'No connection. Overlays you already have still work; connect to get more.' });
+    const results = h('div', { class: 'ogc-results' });
+    out.push(offline, search, this.status(), results);
+    out.push(h('p', { class: 'note', text: 'From ogc.gis.is, Iceland’s public map server, run by Náttúrufræðistofnun for many agencies. What you get is kept on this device.' }));
+    this.drawOgc(results, offline);
+    return out;
+  }
+
+  /** Draws Get overlays' list again (not the search field, which keeps its focus), its status and
+   *  whether it's offline; `into`/`offline` while the screen is being built, before it's shown. */
+  private drawOgc(into = this.panel.querySelector<HTMLElement>('.ogc-results'), offline = this.panel.querySelector<HTMLElement>('.note.offline')): void {
+    if (!into || this.view.kind !== 'ogc') return;
+    if (offline) offline.hidden = navigator.onLine;
+    const status = into.isConnected ? this.panel.querySelector('.status') : null;
+    if (status) {
+      status.textContent = this.message;
+      status.classList.toggle('error', this.messageIsError);
+    }
+    const q = this.ogcQuery.trim();
+    if (!q) {
+      into.replaceChildren(...PICKED.flatMap((g) => [h('h3', { text: g.group }), h('div', { class: 'ogc-group' }, ...g.layers.map((l) => this.ogcRow(l, l.agency)))]));
+      return;
+    }
+    if (!this.ogcAll) {
+      into.replaceChildren(h('p', { class: `note${this.ogcError ? ' error' : ''}`, text: this.ogcError || 'Reading the list of layers from ogc.gis.is…' }));
+      if (this.ogcError || this.ogcLoading) return;
+      this.ogcLoading = true;
+      void serverLayers()
+        .then((all) => (this.ogcAll = all))
+        .catch((err) => (this.ogcError = `The list couldn’t be read: ${err instanceof Error ? err.message : String(err)}`))
+        .finally(() => {
+          this.ogcLoading = false;
+          this.drawOgc();
+        });
+      return;
+    }
+    const found = searchLayers(this.ogcAll, q);
+    const of = `${found.length.toLocaleString('en')} of ${this.ogcAll.length.toLocaleString('en')} layers, by the server’s own names.`;
+    const count = found.length === 0 ? `No layer has “${q}” in its name.` : found.length > MAX_FOUND ? `${of} Showing the first ${MAX_FOUND}: type more to narrow it.` : of;
+    into.replaceChildren(h('p', { class: 'note', text: count }), h('div', { class: 'ogc-group' }, ...found.slice(0, MAX_FOUND).map((l) => this.ogcRow(l, `${l.agency} · ${l.id.split(':')[1]}`))));
+  }
+
+  /** A layer with Get, how far its download has come, or ✓ Added. */
+  private ogcRow(l: OgcLayer, sub: string): El {
+    const have = this.overlays?.fromLayer(l.id);
+    let action: El;
+    if (have) action = h('span', { class: 'got', text: '✓ Added' });
+    else if (this.fetching?.id === l.id) action = h('span', { class: 'got busy', text: this.fetching.bytes ? sizeText(this.fetching.bytes) : 'Starting…' });
+    else {
+      const b = h('button', { type: 'button', class: 'get', text: 'Get', 'aria-label': `Get ${l.title}` }) as HTMLButtonElement;
+      b.disabled = !navigator.onLine;
+      b.onclick = () => void this.getLayer(l);
+      action = b;
+    }
+    const text = h('div', { class: 'row static' }, h('span', { class: 't' }, h('span', { class: 'n', text: l.title }), h('span', { class: 's', text: l.big ? `${sub} · a big download` : sub })));
+    return h('div', { class: 'split ogc-row', 'data-layer': l.id }, text, action);
+  }
+
+  /** Downloads a layer and adds it, shown; the list stays open for more. */
+  private async getLayer(found: OgcLayer): Promise<void> {
+    // Found by the search or picked, it's the same layer with the same name.
+    const l = pickedLayer(found.id) ?? found;
+    if (this.fetching || this.busy) {
+      this.progress('Wait until this download has finished.');
+      return;
+    }
+    this.fetching = { id: l.id, bytes: 0 };
+    this.message = `Downloading “${l.title}”…`;
+    this.messageIsError = false;
+    this.drawOgc();
+    const progress = (n: number) => {
+      this.fetching = { id: l.id, bytes: n };
+      const busy = this.panel.querySelector(`[data-layer="${CSS.escape(l.id)}"] .busy`);
+      if (busy) busy.textContent = sizeText(n);
+    };
+    try {
+      const o = await this.overlays!.download(l, progress);
+      this.message = `Added “${o.name}” (${overlaySummary(o.counts)}). It works offline now.`;
+    } catch (err) {
+      this.message = `“${l.title}” couldn’t be added: ${err instanceof Error ? err.message : String(err)}`;
+      this.messageIsError = true;
+    } finally {
+      this.fetching = null;
+    }
+    if (this.view.kind !== 'ogc') return this.redraw(); // left meanwhile: the message shows where it is
+    this.drawOgc();
+    // The Get button tapped is gone: the message is read out instead.
+    this.panel.querySelector<HTMLElement>('.status')?.focus();
   }
 
   private showOverlay(o: StoredOverlay, visible: boolean): void {
@@ -497,6 +629,21 @@ export class MapsUi {
     if (!o) return [...out, h('p', { class: 'note', text: 'This overlay is no longer stored.' })];
     out.push(h('h2', { class: 'title', tabindex: '-1', id: 'maps-title' }, swatch(o.color), o.name));
     out.push(h('p', { class: 'note', text: [overlaySummary(o.counts), `added ${dateText(o.added)}`, o.visible ? 'shown' : 'hidden'].join(' · ') }));
+    const source = o.source;
+    let update: El | null = null;
+    if (source) {
+      out.push(h('p', { class: 'note', text: `From ogc.gis.is · ${agencyOf(source.ogc)} · downloaded ${dateText(source.downloaded)}` }));
+      update = h('button', { type: 'button', class: 'item link', id: 'overlay-update', text: 'Update from ogc.gis.is' });
+      let before = o.counts;
+      update.onclick = () => void this.act(async () => {
+        this.progress('Downloading it again…');
+        before = await this.overlays!.update(o, (n) => this.progress(`Downloading it again… ${sizeText(n)}`));
+      }, () => {
+        const now = overlaySummary(o.counts);
+        const was = overlaySummary(before);
+        return now === was ? `Updated: ${now}, as before.` : `Updated: ${now} (was ${was}).`;
+      });
+    }
     const where = h('button', { type: 'button', class: 'item link', id: 'overlay-where', text: 'Show where it is' });
     where.onclick = () => {
       if (!o.visible) this.showOverlay(o, true);
@@ -505,7 +652,7 @@ export class MapsUi {
     };
     const remove = h('button', { type: 'button', class: 'item danger', id: 'overlay-remove', text: `Remove from ${device()}` });
     remove.onclick = () => {
-      if (!confirm(`Remove “${o.name}” from ${device()}? You will need the file to add it again.`)) return;
+      if (!confirm(`Remove “${o.name}” from ${device()}? ${o.source ? 'You can get it from ogc.gis.is again.' : 'You will need the file to add it again.'}`)) return;
       void this.act(async () => {
         await this.overlays!.remove(o.id);
         this.view = { kind: 'list' };
@@ -515,7 +662,7 @@ export class MapsUi {
       const title = 'What the colours mean';
       out.push(h('h3', { text: title }), h('ul', { class: 'legend', 'aria-label': title }, ...o.legend.items.map((i) => h('li', {}, swatch(i.color), i.value))));
     }
-    out.push(where, remove, this.status());
+    out.push(...(update ? [update] : []), where, remove, this.status());
     return out;
   }
 
