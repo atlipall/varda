@@ -446,6 +446,41 @@ try {
     }
     const left = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('garmin-map'); r.onsuccess = () => { const tx = r.result.transaction(['overlays', 'overlayData']); const a = tx.objectStore('overlays').count(); const b = tx.objectStore('overlayData').count(); tx.oncomplete = () => res(a.result + b.result); }; }));
     if (left !== 0) fail(`after removing overlays: ${left} stored`);
+    // A Shapefile (Óbyggðanefnd's þjóðlendur: ISN93, Latin-1 named by a .cst), its files picked
+    // together: one overlay in its kinds' colours, with their legend in its details.
+    const thDir = REPO + 'map-files/Obyggdanefnd thjodlendur/';
+    if (existsSync(thDir + 'TH.shp')) {
+      await page.click('#maps-button');
+      await page.waitForSelector('#maps-panel:not([hidden]) #maps-add-input', { timeout: 5_000 });
+      await (await page.$('#maps-add-input')).uploadFile(...['shp', 'dbf', 'prj', 'cst', 'shx'].map((e) => `${thDir}TH.${e}`));
+      await page.waitForFunction(() => document.querySelectorAll('#maps-panel .overlay-row').length === 1 && /Added/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 20_000 })
+        .catch(async () => fail(`Shapefile not listed: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
+      const th = await page.evaluate(() => ({
+        row: document.querySelector('#maps-panel .overlay-row')?.innerText.replace(/\s+/g, ' '),
+        message: document.querySelector('#maps-panel .status')?.textContent,
+        features: window.__app.map.getStyle().sources.overlays.data.features.length,
+      }));
+      console.log('Shapefile overlay:', th.row, '|', th.message, '|', th.features, 'features');
+      if (!/TH 306 areas/.test(th.row) || th.features < 306) fail(`Shapefile overlay: ${JSON.stringify(th)}`);
+      await page.click('#maps-panel .overlay-row:nth-child(1) .info');
+      await page.waitForSelector('#maps-panel .legend li', { timeout: 5_000 }).catch(() => fail('no legend in the Shapefile overlay’s details'));
+      const legend = await page.$$eval('#maps-panel .legend li', (ls) => ls.map((l) => l.textContent));
+      if (legend.join('|') !== 'Afréttareign|Afréttur|Þjóðlenda|Þjóðlenda á jökli|Haf') fail(`Shapefile legend: ${legend}`);
+      await page.screenshot({ path: `${OUT}overlays-shapefile-details.png` });
+      await page.click('#overlay-where');
+      await page.waitForSelector('#maps-panel[hidden]', { timeout: 5_000 });
+      await page.evaluate(() => new Promise((r) => { const m = window.__app.map; m.jumpTo({ center: [-18.6, 64.75], zoom: 7.5 }); m.once('idle', r); }));
+      await page.screenshot({ path: `${OUT}overlays-shapefile.png` });
+      await page.click('#maps-button');
+      await page.waitForSelector('#maps-panel:not([hidden]) .overlay-row .info', { timeout: 5_000 });
+      await page.click('#maps-panel .overlay-row:nth-child(1) .info');
+      await page.waitForSelector('#overlay-remove', { timeout: 5_000 });
+      page.once('dialog', (d) => d.accept());
+      await page.click('#overlay-remove');
+      await page.waitForFunction(() => !document.querySelector('#maps-panel .overlay-row') && /Removed/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 5_000 }).catch(() => fail('Shapefile overlay not removed'));
+      await page.evaluate(() => document.querySelector('#maps-panel .close').click());
+      console.log('Shapefile overlay ok');
+    } else console.log('Shapefile overlay skipped: no map-files/Obyggdanefnd thjodlendur');
     // Back to the Maps tab for the steps after.
     await page.click('#maps-button');
     await page.waitForSelector('#maps-panel:not([hidden]) .intro', { timeout: 5_000 }).catch(() => fail('no empty-list note on the Overlays tab'));

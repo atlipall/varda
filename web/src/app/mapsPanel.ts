@@ -6,6 +6,7 @@ import { acceptDrops, extensions } from '../ui/drop';
 import { editName } from '../ui/rename';
 import { overlaySummary, type OverlayMap } from './overlayMap';
 import { EYE_OFF, EYE_ON } from './listButtons';
+import { OVERLAY_EXTENSIONS } from '../overlays/read';
 import type { StoredOverlay } from '../overlays/store';
 
 /** The free OpenStreetMap-based map of Iceland, through the download pass-through (web/download-worker). */
@@ -147,7 +148,7 @@ export class MapsUi {
     this.mapsButton.button.onclick = () => this.showPanel(this.panel.hidden !== false);
     // Nothing behind the standalone panel to go back to.
     this.panel.addEventListener('keydown', (e) => e.key === 'Escape' && !this.standalone && this.showPanel(false));
-    acceptDrops(this.panel, (files) => this.take(files), extensions('img', 'hgt', 'kml', 'kmz'));
+    acceptDrops(this.panel, (files) => this.take(files), extensions('img', 'hgt', ...OVERLAY_EXTENSIONS));
   }
 
   /** The overlays, listed in their own tab from now on. */
@@ -165,21 +166,21 @@ export class MapsUi {
   private take(files: File[]): void {
     const img = extensions('img');
     const hgt = extensions('hgt');
-    const kml = extensions('kml', 'kmz');
+    const overlay = extensions(...OVERLAY_EXTENSIONS);
     if (this.stillBusy()) return;
     const imgs = files.filter((f) => img(f.name));
     const hgts = files.filter((f) => hgt(f.name));
-    const kmls = this.overlays ? files.filter((f) => kml(f.name)) : [];
-    const kinds = this.overlays ? 'a map (.img), elevation files (.hgt) or an overlay (.kml, .kmz)' : 'a map (.img file) or elevation files (.hgt)';
-    const others = files.filter((f) => !imgs.includes(f) && !hgts.includes(f) && !kmls.includes(f));
+    const overlayFiles = this.overlays ? files.filter((f) => overlay(f.name)) : [];
+    const kinds = this.overlays ? 'a map (.img), elevation files (.hgt) or an overlay (.kml, .kmz, a Shapefile)' : 'a map (.img file) or elevation files (.hgt)';
+    const others = files.filter((f) => !imgs.includes(f) && !hgts.includes(f) && !overlayFiles.includes(f));
     if (others.length === files.length) return this.showError(`Choose ${kinds}.`);
     const left = others.map((f) => `“${f.name}” was left out: choose ${kinds}.`);
     const maps = imgs.length || hgts.length;
     this.tab = maps ? 'maps' : 'overlays';
-    if (!maps) return this.addOverlays(kmls, left);
+    if (!maps) return this.addOverlays(overlayFiles, left);
     void (async () => {
       // Overlays first (quick); their result goes after the maps' own message.
-      const extra = kmls.length ? [(await this.importOverlays(kmls)).text, ...left] : left;
+      const extra = overlayFiles.length ? [(await this.importOverlays(overlayFiles)).text, ...left] : left;
       if (imgs.length) this.storeMaps(imgs.map((f) => ({ name: f.name, store: (hgt, onProgress, opts) => importFiles(f, hgt, onProgress, opts) })), hgts, extra);
       else this.addElevation(hgts, this.view.kind === 'set' ? this.view.id : null, extra);
     })();
@@ -415,7 +416,7 @@ export class MapsUi {
       } else out.push(h('p', { class: 'note', text: 'Elevation files (.hgt) draw the hills’ shading and give heights along tracks.' }));
     }
     out.push(this.filesButton('+ Add…', 'maps-add', (files) => this.take(files), first ? 'big' : 'add'));
-    out.push(h('p', { class: 'note', text: this.overlays ? 'Maps (.img), elevation files (.hgt) and overlays (.kml, .kmz), one or several at a time.' : 'Maps (.img) and elevation files (.hgt), one or several at a time, from this device or iCloud Drive.' }));
+    out.push(h('p', { class: 'note', text: this.overlays ? 'Maps (.img), elevation files (.hgt) and overlays (.kml, .kmz, Shapefiles), one or several at a time.' : 'Maps (.img) and elevation files (.hgt), one or several at a time, from this device or iCloud Drive.' }));
     if (!lib.maps.some((m) => m.imgName === FREE_MAP_NAME)) {
       const download = h('button', { type: 'button', class: 'add', id: 'maps-download', text: 'Download the free map of Iceland' });
       download.onclick = () => this.download();
@@ -464,7 +465,7 @@ export class MapsUi {
     const overlays = this.overlays!;
     const out: Node[] = [this.head('Maps', 'maps-title', close), this.tabs()];
     if (overlays.loadError) out.push(h('p', { class: 'note error', role: 'alert', text: `The overlays couldn’t be read: ${overlays.loadError}` }));
-    if (!overlays.all.length) out.push(h('p', { class: 'note intro', text: 'Draw extra areas, lines and places over the map from KML files, such as the drone no-fly zones in GPSmap.is’s OVERLAYS folder.' }));
+    if (!overlays.all.length) out.push(h('p', { class: 'note intro', text: 'Draw extra areas, lines and places over the map from KML files, such as the drone no-fly zones in GPSmap.is’s OVERLAYS folder, or from Shapefiles, such as Óbyggðanefnd’s þjóðlendur.' }));
     const list = h('div', { class: 'overlay-list' });
     for (const o of overlays.all) {
       const b = row(o.name, [overlaySummary(o.counts)], { lead: swatch(o.color), trail: h('span', { class: 'eye', 'aria-hidden': 'true', html: o.visible ? EYE_ON : EYE_OFF }) });
@@ -479,7 +480,7 @@ export class MapsUi {
     if (overlays.all.length) out.push(list);
     out.push(this.status());
     out.push(this.filesButton('+ Add…', 'maps-add', (files) => this.take(files), 'add'));
-    out.push(h('p', { class: 'note', text: 'Overlays (.kml, .kmz), such as GPSmap.is’s OVERLAYS folder. Maps and elevation files go to the Maps tab.' }));
+    out.push(h('p', { class: 'note', text: 'Overlays (.kml, .kmz), such as GPSmap.is’s OVERLAYS folder, and Shapefiles: a .zip, or the .shp, .dbf and .prj together. Maps and elevation files go to the Maps tab.' }));
     return out;
   }
 
@@ -510,6 +511,10 @@ export class MapsUi {
         this.view = { kind: 'list' };
       }, () => `Removed “${o.name}”.`);
     };
+    if (o.legend) {
+      const title = 'What the colours mean';
+      out.push(h('h3', { text: title }), h('ul', { class: 'legend', 'aria-label': title }, ...o.legend.items.map((i) => h('li', {}, swatch(i.color), i.value))));
+    }
     out.push(where, remove, this.status());
     return out;
   }

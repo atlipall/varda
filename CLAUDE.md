@@ -71,6 +71,14 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
+- **`overlay-shapefiles` branch (2026-11-19), on the development site:** Shapefiles as overlays
+  (`web/src/overlays/shapefile.ts`, `proj.ts`, `read.ts`; reader and projections taken from the
+  paused `map-layers` work), for Óbyggðanefnd's þjóðlendur (ogc.gis.is WFS, `shape-zip`; a copy in
+  `map-files/Obyggdanefnd thjodlendur/` for the tests and e2e). Add… takes a .zip or the .shp,
+  .dbf, .prj together; ISN93/ISN2016/UTM/degrees; .cpg or GeoServer's .cst for the encoding;
+  outlines simplified at 1 m. No colours in a Shapefile: a kind-like text field ("tegund2") picks
+  them, and ⓘ shows "What the colours mean". Waiting for the owner's phone test.
+
 - **`maps-overlays-tabs` branch (2026-11-10), on the development site:** overlays moved into the
   Maps panel as a **Maps | Overlays** tab (mockup `mockups/maps-and-overlays.html`); Maps and
   Overlays gone from the ⋯ menu, so the map button opens it (Settings' map row too, on the Maps
