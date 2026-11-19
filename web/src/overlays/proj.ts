@@ -121,6 +121,11 @@ function projectionOf(wkt: string): Unproject | null {
     if (lat1 === undefined || lat0 === undefined) return null;
     return scaled(lcc({ lat1, lat2: param('standard_parallel_2') ?? lat1, lat0, lon0, x0: x0 * toMetres, y0: y0 * toMetres, ellipsoid }));
   }
+  if (/PROJECTION\s*\[\s*"(Popular Visualisation Pseudo Mercator|Mercator_Auxiliary_Sphere)"/i.test(w)) {
+    // Web Mercator (EPSG:3857): on a sphere of the ellipsoid's major radius.
+    const R = ellipsoid.a;
+    return scaled((x, y) => [lon0 + deg((x - x0 * toMetres) / R), deg(2 * Math.atan(Math.exp((y - y0 * toMetres) / R)) - Math.PI / 2)]);
+  }
   if (/PROJECTION\s*\[\s*"Transverse_Mercator/i.test(w)) {
     return scaled(tm({ lon0, k0: param('scale_factor') ?? 1, x0: x0 * toMetres, y0: y0 * toMetres, lat0: param('latitude_of_origin') ?? 0, ellipsoid }));
   }

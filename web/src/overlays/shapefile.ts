@@ -1,4 +1,4 @@
-import { polygonLabelAnchor, simplifyLine } from '../tiles/buildTile';
+import { coordsBounds, polygonLabelAnchor, simplifyLine } from '../tiles/buildTile';
 import type { Overlay, OverlayFeature, OverlayLegend, OverlayProps } from './kml';
 import { fromWkt, ISN93, lonLat, type Unproject } from './proj';
 
@@ -123,11 +123,18 @@ function inRing([x, y]: [number, number], ring: Ring): boolean {
  *  counter-clockwise; each hole goes with the smallest outer ring it lies in (a lake in an island
  *  in a lake). A "hole" in none is taken as an area drawn the wrong way round (it happens). */
 function polygons(rings: Ring[]): Ring[][] {
-  const outers = rings.filter((r) => signedArea(r) < 0).map((r) => ({ p: [r], area: -signedArea(r) }));
+  const areas = rings.map(signedArea);
+  // Each outer ring's box, so most of them are passed over without walking their points.
+  const outers = rings.flatMap((r, i) => (areas[i] < 0 ? [{ p: [r], area: -areas[i], box: coordsBounds(r) }] : []));
   const strays: Ring[][] = [];
-  for (const h of rings.filter((r) => signedArea(r) >= 0)) {
+  for (const h of rings.filter((_, i) => areas[i] >= 0)) {
+    const [x, y] = h[0];
     let best: (typeof outers)[number] | null = null;
-    for (const o of outers) if ((!best || o.area < best.area) && inRing(h[0], o.p[0])) best = o;
+    for (const o of outers) {
+      const [w, s, e, n] = o.box;
+      if (x < w || x > e || y < s || y > n || (best && o.area >= best.area)) continue;
+      if (inRing(h[0], o.p[0])) best = o;
+    }
     if (best) best.p.push(h);
     else strays.push([h]);
   }
@@ -136,8 +143,17 @@ function polygons(rings: Ring[]): Ring[][] {
 
 type Shape = { type: 'points'; points: Ring } | { type: 'lines'; lines: Ring[] } | { type: 'areas'; areas: Ring[][] };
 
+/** More points than this and an overlay is too much for a phone to hold and draw (Óbyggðanefnd's
+ *  þjóðlendur have 228,000; Fjarskiptastofa's 4G coverage 1.2 million, about 60 MB once read). */
+export const MAX_POINTS = 600_000;
+
 /** The shapes in a .shp, in lon/lat, by record (null for a null shape). */
 function readShapes(shp: Uint8Array, unproject: Unproject): Array<Shape | null> {
+  let points = 0;
+  const count = (n: number) => {
+    points += n;
+    if (points > MAX_POINTS) throw new Error(`It’s too detailed for the app: over ${MAX_POINTS.toLocaleString('en')} points.`);
+  };
   const v = new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
   // Degrees when the file's extent fits in them (whatever order its axes are in).
   const extent = [36, 44, 52, 60].map((o) => Math.abs(v.getFloat64(o, true)));
@@ -162,10 +178,12 @@ function readShapes(shp: Uint8Array, unproject: Unproject): Array<Shape | null> 
     else if (base === 1) out.push({ type: 'points', points: [pt(body + 4)] });
     else if (base === 8) {
       const n = v.getInt32(body + 36, true);
+      count(n);
       out.push({ type: 'points', points: Array.from({ length: n }, (_, i) => pt(body + 40 + i * 16)) });
     } else if (base === 3 || base === 5) {
       const nParts = v.getInt32(body + 36, true);
       const nPoints = v.getInt32(body + 40, true);
+      count(nPoints);
       const starts = Array.from({ length: nParts }, (_, i) => v.getInt32(body + 44 + i * 4, true));
       const pts = body + 44 + nParts * 4;
       const rings: Ring[] = starts.map((s, i) => {
@@ -180,7 +198,7 @@ function readShapes(shp: Uint8Array, unproject: Unproject): Array<Shape | null> 
 }
 
 /** Field names that hold a name, in order of preference (English, Icelandic, common GIS ones). */
-const NAME_FIELDS = ['name', 'nafn', 'heiti', 'heiti_nf', 'title', 'label', 'nafn_is', 'name_is', 'ornefni', 'örnefni'];
+const NAME_FIELDS = ['name', 'nafn', 'heiti', 'heiti_nf', 'title', 'label', 'nafn_is', 'name_is', 'ornefni', 'örnefni', 'nafnfitju', 'nafn_leida', 'nafn_leid'];
 /** Field names that sort shapes into kinds. */
 const KIND_FIELD = /^(tegund|flokkur|flokkun|gerd|gerð|type|class|fclass|category|kind|landuse|status|stada|staða)/i;
 const MAX_KINDS = KIND_COLORS.length;
@@ -208,8 +226,21 @@ export function kindField(dbf: Dbf, name: string | null): string | null {
   return scored[0]?.f ?? null;
 }
 
+/** What to name and colour shapes by, where the file's fields are known (see ./ogc.ts): a field,
+ *  or null for none; left out, the fields are guessed. */
+export interface ShapefileFields {
+  name?: string | null;
+  kind?: string | null;
+}
+
+/** A text field whose every value is a colour ("#ff7f00"): the shapes' own colours. */
+function colorField(dbf: Dbf): string | null {
+  if (!dbf.records.length) return null;
+  return dbf.textFields.find((f) => dbf.records.every((r) => { const c = r[f]; return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c); })) ?? null;
+}
+
 /** Reads a Shapefile as an overlay named `name`. */
-export function parseShapefile(parts: ShapefileParts, name: string): Overlay {
+export function parseShapefile(parts: ShapefileParts, name: string, fields: ShapefileFields = {}): Overlay {
   const { shp } = parts;
   const v = new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
   if (shp.length < 100 || v.getInt32(0, false) !== 9994) throw new Error("This isn't a Shapefile (.shp).");
@@ -217,16 +248,27 @@ export function parseShapefile(parts: ShapefileParts, name: string): Overlay {
   const unproject = parts.prj ? fromWkt(parts.prj) : Math.abs(v.getFloat64(36, true)) > 180 ? ISN93 : lonLat;
   if (!unproject) throw new Error('Its coordinate system (.prj) isn’t one the app knows: save it in WGS84 (EPSG:4326), ISN93 or ISN2016.');
   const dbf: Dbf = parts.dbf ? parseDbf(parts.dbf, parts.cpg) : { textFields: [], records: [] };
-  const named = nameField(dbf);
-  const kind = kindField(dbf, named);
+  const named = fields.name !== undefined ? fields.name : nameField(dbf);
+  const kind = fields.kind !== undefined ? fields.kind : kindField(dbf, named);
+  let own = colorField(dbf);
 
   // Kinds' colours by how many shapes each has; shapes without one in grey.
   let legend: OverlayLegend | undefined;
   const colorOf = new Map<string, string>();
   if (kind) {
     const uses = new Map<string, number>();
-    for (const r of dbf.records) if (typeof r[kind] === 'string') uses.set(r[kind], (uses.get(r[kind]) ?? 0) + 1);
-    const items = [...uses].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'is')).map(([value], i) => ({ value, color: KIND_COLORS[i] }));
+    // With colours of its own, a kind takes the colour its first shape has.
+    const ownOf = new Map<string, Set<string>>();
+    for (const r of dbf.records) {
+      const value = r[kind];
+      if (typeof value !== 'string') continue;
+      uses.set(value, (uses.get(value) ?? 0) + 1);
+      const c = own ? r[own] : undefined;
+      if (typeof c === 'string') ownOf.set(value, (ownOf.get(value) ?? new Set()).add(c));
+    }
+    // The shapes' own colours only where each kind has one (else the legend would be wrong).
+    if (own && ![...uses.keys()].every((v) => ownOf.get(v)?.size === 1)) own = null;
+    const items = [...uses].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'is')).map(([value], i) => ({ value, color: own ? [...ownOf.get(value)!][0] : KIND_COLORS[i] }));
     for (const i of items) colorOf.set(i.value, i.color);
     if (dbf.records.some((r) => typeof r[kind] !== 'string')) items.push({ value: NO_VALUE, color: NO_VALUE_COLOR });
     legend = { field: kind, items };
@@ -248,7 +290,9 @@ export function parseShapefile(parts: ShapefileParts, name: string): Overlay {
     if (!shape) return;
     const rec = dbf.records[i] ?? {};
     const value = kind ? rec[kind] : undefined;
-    const color = !kind ? KIND_COLORS[0] : colorOf.get(String(value)) ?? NO_VALUE_COLOR;
+    const ownColor = own ? rec[own] : undefined;
+    const kindColor = kind ? colorOf.get(String(value)) ?? NO_VALUE_COLOR : KIND_COLORS[0];
+    const color = typeof ownColor === 'string' ? ownColor : kindColor;
     const label = named && rec[named] !== undefined ? String(rec[named]) : '';
     const props: OverlayProps = { k: 'area', name: label, line: color, lineOpacity: 1, lineWidth: 1.5, fill: color, fillOpacity: 0.2 };
     colorUse.set(color, (colorUse.get(color) ?? 0) + 1);

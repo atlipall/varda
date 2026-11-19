@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
@@ -481,6 +481,65 @@ try {
       await page.evaluate(() => document.querySelector('#maps-panel .close').click());
       console.log('Shapefile overlay ok');
     } else console.log('Shapefile overlay skipped: no map-files/Obyggdanefnd thjodlendur');
+    // Get overlays from ogc.gis.is (faked: its list and the huts layer from map-files/ogc.gis.is/,
+    // as downloaded from it): the button is there over Iceland; Get adds a layer from the picked
+    // list, the search finds one by the server's names, and ⓘ updates it.
+    const ogcDir = REPO + 'map-files/ogc.gis.is/';
+    if (existsSync(ogcDir + 'f4x4:skalar.zip')) {
+      const ogcCalls = [];
+      const onOgc = (req) => {
+        if (req.isInterceptResolutionHandled()) return;
+        const url = new URL(req.url());
+        if (url.hostname !== 'ogc.gis.is') return req.continue();
+        ogcCalls.push(url.searchParams.get('request'));
+        const cors = { 'Access-Control-Allow-Origin': '*' };
+        if (url.searchParams.get('request') === 'GetCapabilities') return req.respond({ status: 200, headers: cors, contentType: 'text/xml', body: readFileSync(ogcDir + 'capabilities.xml') });
+        const file = `${ogcDir}${url.searchParams.get('typeName')}.zip`;
+        if (!existsSync(file)) return req.respond({ status: 404, headers: cors, body: '' });
+        return req.respond({ status: 200, headers: cors, contentType: 'application/zip', body: readFileSync(file) });
+      };
+      await page.setRequestInterception(true);
+      page.on('request', onOgc);
+      await page.click('#maps-button');
+      await page.waitForSelector('#maps-panel:not([hidden]) #ogc-open', { timeout: 5_000 }).catch(() => fail('no Get overlays from ogc.gis.is over the Iceland map'));
+      await page.click('#ogc-open');
+      await page.waitForSelector('#maps-panel .ogc-results .ogc-row', { timeout: 5_000 }).catch(() => fail('Get overlays shows no layers'));
+      const groups = await page.$$eval('#maps-panel .ogc-results h3', (hs) => hs.map((x) => x.textContent));
+      if (groups.join('|') !== 'Huts and stops|Driving and hiking|Hazards|Nature') fail(`Get overlays groups: ${groups}`);
+      await page.screenshot({ path: `${OUT}ogc-list.png` });
+      await page.click('[data-layer="f4x4:skalar"] .get');
+      await page.waitForFunction(() => /✓ Added/.test(document.querySelector('[data-layer="f4x4:skalar"]')?.textContent ?? '') && /Added “Mountain huts” \(7 places\)/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 10_000 })
+        .catch(async () => fail(`Get did not add the huts: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
+      const huts = await page.evaluate(() => {
+        const o = window.__app.overlays.all.find((x) => x.source?.ogc === 'f4x4:skalar');
+        const f = window.__app.map.getStyle().sources.overlays.data.features.filter((x) => x.properties.k === 'point');
+        return { name: o?.name, visible: o?.visible, points: f.length, lon: f[0]?.geometry.coordinates[0] };
+      });
+      if (huts.name !== 'Mountain huts' || !huts.visible || huts.points !== 7 || !(huts.lon < -14 && huts.lon > -20)) fail(`huts overlay: ${JSON.stringify(huts)}`);
+      // The search: the server's list, read once.
+      await page.type('#ogc-search', 'sprungukort');
+      await page.waitForFunction(() => document.querySelector('[data-layer="vedur:crevasse_map_2025"]'), { timeout: 10_000 }).catch(async () => fail(`search found no crevasse map: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
+      if (await page.evaluate(() => document.activeElement?.id) !== 'ogc-search') fail('the search field lost its focus while typing');
+      await page.screenshot({ path: `${OUT}ogc-search.png` });
+      // ⓘ: where it came from, and Update.
+      await page.click('#maps-panel .back');
+      await page.waitForSelector('#maps-panel .overlay-row', { timeout: 5_000 });
+      const hutRow = await page.$$eval('#maps-panel .overlay-row', (rs) => rs.findIndex((r) => /Mountain huts/.test(r.textContent)));
+      await page.click(`#maps-panel .overlay-row:nth-child(${hutRow + 1}) .info`);
+      await page.waitForSelector('#overlay-update', { timeout: 5_000 }).catch(() => fail('no Update in a downloaded overlay’s ⓘ'));
+      await page.click('#overlay-update');
+      await page.waitForFunction(() => /Updated: 7 places, as before/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 10_000 })
+        .catch(async () => fail(`Update: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
+      await page.screenshot({ path: `${OUT}ogc-details.png` });
+      if (ogcCalls.filter((c) => c === 'GetFeature').length !== 2 || ogcCalls.filter((c) => c === 'GetCapabilities').length > 1) fail(`ogc.gis.is requests: ${ogcCalls}`);
+      page.once('dialog', (d) => d.accept());
+      await page.click('#overlay-remove');
+      await page.waitForFunction(() => !document.querySelector('#maps-panel .overlay-row') && /Removed/.test(document.querySelector('#maps-panel .status')?.textContent ?? ''), { timeout: 5_000 }).catch(() => fail('huts overlay not removed'));
+      await page.evaluate(() => document.querySelector('#maps-panel .close').click());
+      page.off('request', onOgc);
+      await page.setRequestInterception(false);
+      console.log('ogc.gis.is overlays ok');
+    } else console.log('ogc.gis.is overlays skipped: no map-files/ogc.gis.is');
     // Back to the Maps tab for the steps after.
     await page.click('#maps-button');
     await page.waitForSelector('#maps-panel:not([hidden]) .intro', { timeout: 5_000 }).catch(() => fail('no empty-list note on the Overlays tab'));

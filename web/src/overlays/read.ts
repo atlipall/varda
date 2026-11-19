@@ -1,5 +1,5 @@
 import { readOverlayFile, type Overlay } from './kml';
-import { parseShapefile, SHAPEFILE_EXTENSIONS, shapefileGroups } from './shapefile';
+import { parseShapefile, SHAPEFILE_EXTENSIONS, shapefileGroups, type ShapefileFields } from './shapefile';
 import { unzip } from './zip';
 
 /** The files Add… takes as overlays: KML, KMZ, a Shapefile's files, or a zip of either. */
@@ -22,13 +22,13 @@ const base = (name: string) => name.split('/').pop()!.replace(/\.[^.]+$/, '');
 const bytesOf = async (f: PickedFile) => new Uint8Array(await f.arrayBuffer());
 
 /** A zip: a KMZ by another name when it holds a .kml, else each Shapefile in it (named after the
- *  zip when it holds only one). */
-async function readZip(name: string, bytes: Uint8Array): Promise<Overlay[]> {
+ *  zip when it holds only one; `fields`: what to name and colour them by, when known). */
+export async function readZip(name: string, bytes: Uint8Array, fields?: ShapefileFields): Promise<Overlay[]> {
   const files = await unzip(bytes.buffer as ArrayBuffer); // a fresh buffer from bytesOf
   if ([...files.keys()].some((n) => /\.kml$/i.test(n))) return [await readOverlayFile(name, bytes)];
   const shapes = shapefileGroups(files).filter((g) => g.parts);
   if (!shapes.length) throw new Error('There is no KML file or Shapefile (.shp) inside this zip file.');
-  return shapes.map((g) => parseShapefile(g.parts!, shapes.length === 1 ? base(name) : g.base));
+  return shapes.map((g) => parseShapefile(g.parts!, shapes.length === 1 ? base(name) : g.base, fields));
 }
 
 /** What to add from picked or dropped files: each KML, KMZ and zip on its own, and a Shapefile's

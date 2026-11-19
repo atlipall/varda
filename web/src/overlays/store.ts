@@ -9,6 +9,15 @@ export interface StoredOverlay extends Omit<Overlay, 'features'> {
   visible: boolean;
   /** When it was added (ms): the list order. */
   added: number;
+  /** Where it was downloaded from, for "Update" (none: added from a file). */
+  source?: OverlaySource;
+}
+
+export interface OverlaySource {
+  /** The server's layer name on ogc.gis.is, "workspace:layer". */
+  ogc: string;
+  /** When it was downloaded (ms). */
+  downloaded: number;
 }
 
 export const listOverlays = async (): Promise<StoredOverlay[]> =>
