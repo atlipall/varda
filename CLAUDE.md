@@ -71,7 +71,7 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
-- **`ogc-overlays` branch (2026-11-19), on the development site:** Get overlays from ogc.gis.is
+- **Shipped 2026-11-19** (merged from `ogc-overlays`, tested on the owner's iPhone): Get overlays from ogc.gis.is
   (mockup `mockups/ogc-overlays.html`; `web/src/overlays/ogc.ts`, the `ogc` view in `mapsPanel.ts`,
   `OverlayMap.download/update`). Owner's choices: a picked list of ~20 travel layers in plain words
   plus a search over all of the server's layers (its list kept a week in localStorage); Update in
@@ -79,7 +79,7 @@ npm run icons                           # redraw the app's and Android app's ico
   The server allows any origin, so no helper (CSP has `https://ogc.gis.is`). Each picked layer
   names its name/kind fields; caps: 40 MB downloads, 600,000 points (4G/5G coverage and the
   birch woods are over). Downloaded layers and the capabilities are in `map-files/ogc.gis.is/`
-  for the tests and the e2e (which fakes the server). Waiting for the owner's phone test.
+  for the tests and the e2e (which fakes the server).
 
 - **Shipped 2026-11-19** (merged from `overlay-shapefiles`, tested on the owner's iPhone): Shapefiles as overlays
   (`web/src/overlays/shapefile.ts`, `proj.ts`, `read.ts`; reader and projections taken from the
