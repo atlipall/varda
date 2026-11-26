@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { emptyTyp, type Typ } from '../src/img/typ';
 import { buildStyle } from '../src/style/buildStyle';
+import { styledLineTypes } from '../src/style/sourceLayers';
 
 const OPTS = { tiles: 'garmin://{z}/{x}/{y}', glyphs: 'http://x/fonts/{fontstack}/{range}.pbf' };
 const img = (w: number, h: number) => ({ width: w, height: h, data: new Uint8Array(w * h * 4) });
@@ -24,8 +25,9 @@ describe('buildStyle', () => {
     expect(style.sources.garmin).toEqual({ type: 'vector', tiles: [OPTS.tiles], minzoom: 4, maxzoom: 14 });
     expect(style.glyphs).toBe(OPTS.glyphs);
     const pg = style.layers.find((l) => l.id === 'pg-60') as { filter: unknown; paint: Record<string, unknown> };
-    // Areas only: area labels are points in the same layer.
-    expect(pg.filter).toEqual(['all', ['==', ['get', 't'], 0x3c], ['==', ['geometry-type'], 'Polygon']]);
+    // Each area type has a layer of its own in the tiles (labels in another): no filter to test.
+    expect(pg).toMatchObject({ 'source-layer': 'p60' });
+    expect(pg.filter).toBeUndefined();
     expect(pg.paint['fill-color']).toBe('#0000ff');
   });
 
@@ -80,11 +82,26 @@ describe('buildStyle', () => {
     const { style } = buildStyle(typ, OPTS);
     const ids = style.layers.map((l) => l.id);
     expect(ids).not.toContain('ln-42');
-    // Not caught by the catch-all for types without a style either.
-    const other = style.layers.find((l) => l.id === 'ln-other') as { filter: unknown[] };
-    expect(JSON.stringify(other.filter)).toContain('42');
-    const labels = style.layers.find((l) => l.id === 'line-labels') as { filter: unknown };
-    expect(labels.filter).toEqual(['all', ['has', 'name'], ['!', ['in', ['get', 't'], ['literal', [0x20, 0x21, 0x22, 0x23, 0x24, 0x25]]]]]);
+    // Not caught by the catch-all for types without a style either: the tiles keep it in its own layer.
+    expect(styledLineTypes(typ).has(0x2a)).toBe(true);
+    const labels = style.layers.find((l) => l.id === 'line-labels') as { filter: unknown; 'source-layer': string };
+    expect(labels['source-layer']).toBe('line-names');
+    expect(labels.filter).toBeUndefined();
+  });
+
+  test('line layers: their own source layer, contours sharing one', () => {
+    const { style } = buildStyle(emptyTyp(), OPTS);
+    const layer = (id: string) => style.layers.find((l) => l.id === id) as { 'source-layer': string; filter?: unknown };
+    expect(layer('ln-1')).toMatchObject({ 'source-layer': 'l1' });
+    expect(layer('ln-1').filter).toBeUndefined();
+    expect(layer('ln-other')).toMatchObject({ 'source-layer': 'l-other' });
+    expect(layer('ln-other').filter).toBeUndefined();
+    expect(layer('ln-32')).toEqual(expect.objectContaining({ 'source-layer': 'contours', filter: ['==', ['get', 't'], 0x20] }));
+    expect(layer('contour-labels')).toEqual(expect.objectContaining({ 'source-layer': 'contours', filter: ['has', 'name'] }));
+    expect(layer('pg-labels')).toMatchObject({ 'source-layer': 'area-labels' });
+    // Only contours and points are still filtered.
+    const filtered = style.layers.filter((l) => 'filter' in l && l.filter !== undefined).map((l) => l.id);
+    expect(filtered.every((id) => /^(ln-3[2-7]|contour-labels|poi-)/.test(id))).toBe(true);
   });
 
   test('hillshade when a dem source is given', () => {
@@ -94,7 +111,7 @@ describe('buildStyle', () => {
     expect(ids.indexOf('hillshade')).toBe(lastFill + 1);
     expect(ids.indexOf('hillshade')).toBeLessThan(ids.indexOf('ln-other'));
     expect(style.sources.dem).toEqual({
-      type: 'raster-dem', tiles: ['dem://{z}/{x}/{y}'], tileSize: 256, minzoom: 5, maxzoom: 11, encoding: 'mapbox', bounds: [-25, 63, -13, 67],
+      type: 'raster-dem', tiles: ['dem://{z}/{x}/{y}'], tileSize: 512, minzoom: 4, maxzoom: 10, encoding: 'mapbox', bounds: [-25, 63, -13, 67],
     });
   });
 });

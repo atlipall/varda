@@ -1,9 +1,10 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
-import { Dem } from '../src/dem/dem';
+import { Dem, OVERVIEW_MAX_ZOOM, TILE_SIZE as S } from '../src/dem/dem';
 import { decodeHgt, decodeTerrainRgb, encodeTerrainRgb, HGT_BYTES, HGT_HD_STEP, HGT_SIZE, hgtStep, onePerSquare, parseHgtName } from '../src/dem/hgt';
 import { decodeOverview, encodeOverview, MAX_OVERVIEW_TILES, OverviewBuilder } from '../src/dem/overview';
 import { BlobSource } from '../src/img/source';
+import { DEM_HD_MAX_ZOOM, DEM_MAX_ZOOM, DEM_MIN_ZOOM } from '../src/map/zoom';
 import { latToTileY, lonToTileX } from '../src/tiles/tileMath';
 import { nodeSource } from './helpers/nodeSource';
 import { REPO } from './helpers/paths';
@@ -61,10 +62,11 @@ describe('Dem on synthetic tiles', () => {
   test('bounds and orientation (north is up, heights grow southward)', async () => {
     const dem = Dem.fromFiles(files, null);
     expect(dem.bounds).toEqual([-20, 63, -19, 65]);
-    const z = 11;
+    const z = 10;
     const t = await dem.tile(z, lonToTileX(-19.5, z), latToTileY(64.5, z));
+    expect(t.length).toBe(S * S * 4);
     const h = heightsOf(t);
-    expect(h[0]).toBeLessThan(h[255 * 256]); // top row is north → smaller row → lower height
+    expect(h[0]).toBeLessThan(h[(S - 1) * S]); // top row is north → smaller row → lower height
     for (const v of h) expect(v).toBeGreaterThan(1000);
   });
 
@@ -80,8 +82,8 @@ describe('Dem on synthetic tiles', () => {
 
   test('outside the mosaic is zero', async () => {
     const dem = Dem.fromFiles(files, null);
-    const t = await dem.tile(11, lonToTileX(-10, 11), latToTileY(64.5, 11));
-    expect(Math.max(...heightsOf(t))).toBe(0);
+    const t = await dem.tile(10, lonToTileX(-10, 10), latToTileY(64.5, 10));
+    expect(heightsOf(t).every((h) => h === 0)).toBe(true);
   });
 
   test('overview matches full resolution closely at low zoom', async () => {
@@ -92,9 +94,10 @@ describe('Dem on synthetic tiles', () => {
     expect([ov.step, ov.rows, ov.cols]).toEqual([8, 301, 151]);
     const full = Dem.fromFiles(files, null);
     const coarse = Dem.fromFiles(files, ov);
-    const [x, y] = [lonToTileX(-19.5, 8), latToTileY(64, 8)];
-    const a = heightsOf(await full.tile(8, x, y));
-    const c = heightsOf(await coarse.tile(8, x, y));
+    const z = OVERVIEW_MAX_ZOOM;
+    const [x, y] = [lonToTileX(-19.5, z), latToTileY(64, z)];
+    const a = heightsOf(await full.tile(z, x, y));
+    const c = heightsOf(await coarse.tile(z, x, y));
     let maxDiff = 0;
     a.forEach((v, i) => (maxDiff = Math.max(maxDiff, Math.abs(v - c[i]))));
     expect(maxDiff).toBeLessThan(1.0); // linear field: bilinear on the coarse grid is near-exact
@@ -111,6 +114,18 @@ describe('Dem on synthetic tiles', () => {
   test('rejects bad files', () => {
     expect(() => Dem.fromFiles([{ name: 'foo.hgt', src: new BlobSource(new Blob([north])) }], null)).toThrow(/foo\.hgt/);
     expect(() => Dem.fromFiles([{ name: 'n63w020.hgt', src: new BlobSource(new Blob([new Uint8Array(10)])) }], null)).toThrow(/1201×1201 \(3″\) or 3601×3601 \(1″\)/);
+  });
+});
+
+describe('tile size', () => {
+  test('512-px tiles one zoom lower show the detail 256-px ones did', () => {
+    expect(S).toBe(512);
+    // Pixels per world width at the last terrain zoom, the first and the overview's last: as
+    // 256-px tiles at zooms 11 (12 with 1″ files), 5 and 8.
+    expect(S * 2 ** DEM_MAX_ZOOM).toBe(256 * 2 ** 11);
+    expect(S * 2 ** DEM_HD_MAX_ZOOM).toBe(256 * 2 ** 12);
+    expect(S * 2 ** DEM_MIN_ZOOM).toBe(256 * 2 ** 5);
+    expect(S * 2 ** OVERVIEW_MAX_ZOOM).toBe(256 * 2 ** 8);
   });
 });
 
@@ -141,35 +156,47 @@ describe('1″ (HD) tiles', () => {
   test('a 1″ file next to a 3″ one samples each in its own grid', async () => {
     const dem = Dem.fromFiles([{ name: 'n64w020.hgt', src: src(sd64) }, { name: 'N64W020.hgt', src: src(hd64) }, { name: 'n63w020.hgt', src: src(sd63) }], null);
     expect(dem.bounds).toEqual([-20, 63, -19, 65]);
-    expect(dem.maxZoom).toBe(12);
+    expect(dem.maxZoom).toBe(11);
     for (const lat of [64.9, 64.5 + 1 / 7200, 64.0001, 64, 63.9999, 63.3]) {
       expect(await dem.elevationAt(-19.4, lat)).toBeCloseTo(field(lat), 3);
     }
-    // A whole zoom-12 tile across the seam at 64°N: heights follow the field on both sides.
-    const z = 12;
+    // A whole zoom-11 tile across the seam at 64°N: heights follow the field on both sides.
+    const z = 11;
     const [x, y] = [lonToTileX(-19.5, z), latToTileY(64, z)];
     const h = heightsOf(await dem.tile(z, x, y));
-    const latOf = (py: number) => (Math.atan(Math.sinh(Math.PI - (2 * Math.PI * (y + (py + 0.5) / 256)) / 2 ** z)) * 180) / Math.PI;
-    for (const py of [0, 77, 128, 200, 255]) expect(h[py * 256 + 40]).toBeCloseTo(field(latOf(py)), 0);
+    const latOf = (py: number) => (Math.atan(Math.sinh(Math.PI - (2 * Math.PI * (y + (py + 0.5) / S)) / 2 ** z)) * 180) / Math.PI;
+    for (const py of [0, 77, 128, 200, 300, 420, S - 1]) expect(h[py * S + 40]).toBeCloseTo(field(latOf(py)), 0);
   });
 
   test('zoomed out (every k-th 1″ sample kept) agrees with single-point lookups', async () => {
     const dem = Dem.fromFiles([{ name: 'N64W020.hgt', src: src(hd64) }, { name: 'n63w020.hgt', src: src(sd63) }], null);
-    const z = 9;
+    const z = 8;
     const [x, y] = [lonToTileX(-19.5, z), latToTileY(64, z)];
     const h = heightsOf(await dem.tile(z, x, y));
-    const lonOf = (px: number) => ((x + (px + 0.5) / 256) / 2 ** z) * 360 - 180;
-    const latOf = (py: number) => (Math.atan(Math.sinh(Math.PI - (2 * Math.PI * (y + (py + 0.5) / 256)) / 2 ** z)) * 180) / Math.PI;
-    for (const [px, py] of [[0, 0], [100, 50], [128, 128], [255, 255], [30, 200]]) {
+    const lonOf = (px: number) => ((x + (px + 0.5) / S) / 2 ** z) * 360 - 180;
+    const latOf = (py: number) => (Math.atan(Math.sinh(Math.PI - (2 * Math.PI * (y + (py + 0.5) / S)) / 2 ** z)) * 180) / Math.PI;
+    for (const [px, py] of [[0, 0], [100, 50], [256, 256], [S - 1, S - 1], [30, 400], [400, 300]]) {
       const lon = lonOf(px);
       const lat = latOf(py);
       if (lon < -20 || lon > -19 || lat < 63 || lat > 65) continue;
-      expect(h[py * 256 + px]).toBeCloseTo((await dem.elevationAt(lon, lat))!, 0);
+      expect(h[py * S + px]).toBeCloseTo((await dem.elevationAt(lon, lat))!, 0);
     }
   });
 
-  test('3″ files alone keep zoom 11', () => {
-    expect(Dem.fromFiles([{ name: 'n63w020.hgt', src: src(sd63) }], null).maxZoom).toBe(11);
+  test('a 512-px tile reads a 1″ file a few MB at a time, at every zoom past the overview\'s', async () => {
+    let biggest = 0;
+    const counting = { size: hd64.length, read: async (at: number, n: number) => ((biggest = Math.max(biggest, n)), hd64.subarray(at, at + n)) };
+    const dem = Dem.fromFiles([{ name: 'n64w020.hgt', src: counting }], null);
+    for (let z = OVERVIEW_MAX_ZOOM + 1; z <= DEM_HD_MAX_ZOOM; z++) {
+      const t = await dem.tile(z, lonToTileX(-19.5, z), latToTileY(64.5, z));
+      expect(t.length).toBe(S * S * 4); // 1 MB of RGBA
+    }
+    // 64 kept rows at a time; the widest stride (8 rows of 7.2 KB, zoom 8) makes the longest read.
+    expect(biggest).toBeLessThan(4 * 2 ** 20);
+  });
+
+  test('3″ files alone keep zoom 10', () => {
+    expect(Dem.fromFiles([{ name: 'n63w020.hgt', src: src(sd63) }], null).maxZoom).toBe(10);
   });
 
   test('the overview takes 1″ files at the same spacing', () => {
@@ -205,7 +232,7 @@ describe.skipIf(!existsSync(HD_DIR))('the HD (1″) elevation files', () => {
   test('load, and Hekla stands about as high', async () => {
     const names = readdirSync(HD_DIR).filter((n) => /\.hgt$/i.test(n));
     const dem = Dem.fromFiles(await Promise.all(names.map(async (name) => ({ name, src: await nodeSource(HD_DIR + name) }))), null);
-    expect(dem.maxZoom).toBe(12);
+    expect(dem.maxZoom).toBe(11);
     let best = -Infinity;
     for (let dy = -0.02; dy <= 0.02; dy += 0.0005) for (let dx = -0.04; dx <= 0.04; dx += 0.001) best = Math.max(best, (await dem.elevationAt(-19.67 + dx, 63.99 + dy))!);
     expect(best).toBeGreaterThan(1440);
