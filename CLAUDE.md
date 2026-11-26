@@ -80,7 +80,9 @@ npm run icons                           # redraw the app's and Android app's ico
   Waiting for the owner's phone test of smoothness and the occasional reloads. Next levers if
   needed: one layer per line/area type means 350-430 draw calls a screen there (Iceland: 80-200);
   buildings at zoom 13; `places.json` (54 MB) parsed on the main thread at start; the 1.3 s sort
-  in `PlaceIndex`. Seen, not looked into: hardly any street names in central Copenhagen at zoom 14.
+  in `PlaceIndex`.
+  Street and river names are the style's last layer, so they are placed before the points (in a
+  town centre the shops' dots and names took all the room; Reykjavík gets more street names too).
 
 - **Shipped 2026-11-19** (merged from `ogc-overlays`, tested on the owner's iPhone): Get overlays from ogc.gis.is
   (mockup `mockups/ogc-overlays.html`; `web/src/overlays/ogc.ts`, the `ogc` view in `mapsPanel.ts`,

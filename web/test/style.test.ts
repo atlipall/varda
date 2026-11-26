@@ -68,6 +68,13 @@ describe('buildStyle', () => {
     expect(layout('ln-31')).toEqual({ 'line-join': 'round', 'line-cap': 'butt' });
   });
 
+  test('street and river names are placed before points (MapLibre places the last layer first)', () => {
+    const ids = buildStyle(emptyTyp(), OPTS).style.layers.map((l) => l.id);
+    expect(ids.indexOf('line-labels')).toBeGreaterThan(ids.indexOf('poi-icons'));
+    expect(ids.indexOf('line-labels')).toBeGreaterThan(ids.indexOf('poi-dot-labels'));
+    expect(ids[ids.length - 1]).toBe('line-labels');
+  });
+
   test('a hidden line type is not drawn, but its names are', () => {
     const typ: Typ = { ...emptyTyp(), lines: new Map([[0x2a, { color: '#ffffff', width: 1, borderColor: null, borderWidth: 0, dash: null, hidden: true }]]) };
     const { style } = buildStyle(typ, OPTS);

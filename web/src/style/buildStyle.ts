@@ -119,11 +119,6 @@ export function buildStyle(typ: Typ, opts: StyleOptions): { style: StyleSpecific
     { id: 'contour-labels', type: 'symbol', source: 'garmin', 'source-layer': 'lines', filter: ['all', ['has', 'name'], isContour],
       layout: { 'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': [FONT_REGULAR], 'text-size': 9 },
       paint: { 'text-color': '#8a6a4a', ...HALO } },
-    { id: 'line-labels', type: 'symbol', source: 'garmin', 'source-layer': 'lines', filter: ['all', ['has', 'name'], ['!', isContour]],
-      layout: { 'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': [FONT_REGULAR], 'text-size': 11, 'text-max-angle': 30,
-                // Wide spacing where long rivers dominate; default spacing where town streets do.
-                'symbol-spacing': ['interpolate', ['linear'], ['zoom'], 12, 500, 14, 250] },
-      paint: { 'text-color': '#333333', ...HALO } },
   ] as LayerSpecification[]);
 
   const iconTypes = [...typ.points.keys()].sort((a, b) => a - b);
@@ -140,6 +135,15 @@ export function buildStyle(typ: Typ, opts: StyleOptions): { style: StyleSpecific
                 'text-offset': [0, 1.1], 'text-optional': true, ...text },
       paint: { 'text-color': '#222222', ...HALO } },
   ] as LayerSpecification[]);
+
+  // Street and river names last: MapLibre places the last layer's labels first, so they get their
+  // room before the points do. In a town centre the shops' dots and names otherwise take it all
+  // (central Copenhagen at zoom 14: 520 points shown, 2 street names).
+  layers.push({ id: 'line-labels', type: 'symbol', source: 'garmin', 'source-layer': 'lines', filter: ['all', ['has', 'name'], ['!', isContour]],
+    layout: { 'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': [FONT_REGULAR], 'text-size': 11, 'text-max-angle': 30,
+              // Wide spacing where long rivers dominate; default spacing where town streets do.
+              'symbol-spacing': ['interpolate', ['linear'], ['zoom'], 12, 500, 14, 250] },
+    paint: { 'text-color': '#333333', ...HALO } } as unknown as LayerSpecification);
 
   const sources: StyleSpecification['sources'] = {
     garmin: {
