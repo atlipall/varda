@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { ImgContainer } from '../src/img/container';
-import { decodeSubdivision, type Chunk, type DecodeStats } from '../src/img/rgn';
+import { DECODE_LINES, decodeSubdivision, pairs, type Chunk, type DecodeStats } from '../src/img/rgn';
 import { extFields, KIND_LINES, KIND_POINTS, parseTre, type Range, type Subdivision } from '../src/img/tre';
 import { nodeSource } from './helpers/nodeSource';
 import { DETAILED, hasRealData } from './helpers/paths';
@@ -22,25 +22,47 @@ describe('decodeSubdivision', () => {
     const body = [2 + point.length, 0, ...point, ...line];
     const s = stats();
     const objs = decodeSubdivision(whole([...new Array(10).fill(0), ...body]), sub(10, 10 + body.length, KIND_POINTS | KIND_LINES), s);
-    expect(objs.map((o) => [o.kind, o.type, o.label, o.labelSrc, o.coords])).toEqual([
+    expect(objs.map((o) => [o.kind, o.type, o.label, o.labelSrc, pairs(o.xy)])).toEqual([
       ['point', 0x2f06, 5, 'lbl', [[1001, 1999]]],
       ['line', 0x16, 0, 'lbl', [[1000, 2000], [1001, 2002]]],
     ]);
     expect(s).toEqual({ sections: 2, badSections: 0 });
+    // One buffer holds every object's points.
+    expect(objs[0].xy.buffer).toBe(objs[1].xy.buffer);
+  });
+
+  test('only the kinds asked for', () => {
+    const point = [0x2f, 0x05, 0x00, 0x80, 0x01, 0x00, 0xff, 0xff, 0x06];
+    const line = [0x16, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x00, 0x95];
+    const body = [2 + point.length, 0, ...point, ...line];
+    const s = stats();
+    const objs = decodeSubdivision(whole([...new Array(10).fill(0), ...body]), sub(10, 10 + body.length, KIND_POINTS | KIND_LINES), s, DECODE_LINES);
+    expect(objs.map((o) => [o.kind, pairs(o.xy)])).toEqual([['line', [[1000, 2000], [1001, 2002]]]]);
+    expect(s).toEqual({ sections: 1, badSections: 0 });
+  });
+
+  test('a bad section leaves out its points too', () => {
+    const point = [0x2f, 0x05, 0x00, 0x80, 0x01, 0x00, 0xff, 0xff, 0x06];
+    const line = [0x16, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x00, 0x95];
+    // The line section has a stray byte at its end, so it doesn't decode cleanly.
+    const body = [2 + point.length, 0, ...point, ...line, 0];
+    const objs = decodeSubdivision(whole(body), sub(0, body.length, KIND_POINTS | KIND_LINES), stats());
+    expect(objs.map((o) => [o.kind, pairs(o.xy)])).toEqual([['point', [[1001, 1999]]]]);
+    expect(objs[0].xy.buffer.byteLength).toBe(8);
   });
 
   test('extended polygon with label', () => {
     const rec = [0x03, 0x21, 0x02, 0x00, 0x03, 0x00, 0x07, 0x00, 0x25, 0x01, 0x07, 0x00, 0x00];
     const s = stats();
     const objs = decodeSubdivision(whole([0, 0, 0, 0, ...rec]), sub(0, 0, 0, [[4, 4 + rec.length], [0, 0], [0, 0]]), s);
-    expect(objs.map((o) => [o.kind, o.type, o.label, o.coords])).toEqual([['polygon', 0x10301, 7, [[1002, 2003], [1003, 2005]]]]);
+    expect(objs.map((o) => [o.kind, o.type, o.label, pairs(o.xy)])).toEqual([['polygon', 0x10301, 7, [[1002, 2003], [1003, 2005]]]]);
     expect(s.badSections).toBe(0);
   });
 
   test('extended point with POI label', () => {
     const rec = [0x2c, 0x25, 0x01, 0x00, 0x02, 0x00, 0x09, 0x00, 0x40];
     const objs = decodeSubdivision(whole(rec), sub(0, 0, 0, [[0, 0], [0, 0], [0, rec.length]]), stats());
-    expect(objs.map((o) => [o.kind, o.type, o.label, o.labelSrc, o.coords])).toEqual([['point', 0x12c05, 9, 'poi', [[1001, 2002]]]]);
+    expect(objs.map((o) => [o.kind, o.type, o.label, o.labelSrc, pairs(o.xy)])).toEqual([['point', 0x12c05, 9, 'poi', [[1001, 2002]]]]);
   });
 
   test('a misaligned section contributes no objects', () => {
@@ -79,7 +101,7 @@ describe.skipIf(!hasRealData)('decodeSubdivision on real data', () => {
     let latOk = true;
     for (const sd of [...t.subdivisions.slice(0, 1500), ...t.subdivisions.slice(-800)]) {
       for (const o of decodeSubdivision({ main: c, ext: [c, c, c] }, sd, s)) {
-        latOk &&= o.coords.every(([, y]) => (y * 360) / 2 ** 24 > 62.9 && (y * 360) / 2 ** 24 < 65.2);
+        latOk &&= pairs(o.xy).every(([, y]) => (y * 360) / 2 ** 24 > 62.9 && (y * 360) / 2 ** 24 < 65.2);
       }
     }
     expect(s.sections).toBeGreaterThan(1000);

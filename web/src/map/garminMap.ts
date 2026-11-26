@@ -1,9 +1,9 @@
 import { ImgError, u16 } from '../img/bytes';
 import { ImgContainer } from '../img/container';
 import { LabelTable } from '../img/lbl';
-import type { Chunk, RawObject, SubdivisionBytes } from '../img/rgn';
+import { DECODE_ALL, DECODE_LINES, DECODE_POINTS, DECODE_POLYGONS, decodeSubdivision, type Chunk, type DecodeStats, type RawObject, type SubdivisionBytes } from '../img/rgn';
 import type { ByteSource } from '../img/source';
-import { extRanges, hasData, parseTre, type Subdivision, type Tre } from '../img/tre';
+import { extRanges, hasData, KIND_IDX_POINTS, KIND_LINES, KIND_POINTS, KIND_POLYGONS, parseTre, type Subdivision, type Tre } from '../img/tre';
 import { conventionsFor, type MapConventions } from './conventions';
 import { CONTOUR_LINE_TYPES, contourLabel, EARLY_ROADS_ZOOM, ROADS_LEVEL_ZOOM, zoomBands } from './zoom';
 
@@ -98,11 +98,24 @@ export class GarminMap {
     return roads !== this.levelForZoom(z) ? roads : undefined;
   }
 
-  async readSubdivision(tile: MapTile, sd: Subdivision): Promise<SubdivisionBytes> {
+  /** The RGN bytes of a subdivision; with `kinds` (`DECODE_*` bits), only those `decodeSubdivision`
+   *  needs for objects of those kinds. */
+  async readSubdivision(tile: MapTile, sd: Subdivision, kinds = DECODE_ALL): Promise<SubdivisionBytes> {
     const rgn = `${tile.id}.RGN`;
-    const chunk = async (a: number, e: number): Promise<Chunk> => ({ bytes: e > a ? await this.img.read(rgn, a, e - a) : new Uint8Array(0), base: a });
-    const [main, pg, ln, pt] = await Promise.all([chunk(sd.rgnStart, sd.rgnEnd), ...extRanges(sd).map(([a, e]) => chunk(a, e))]);
+    const chunk = async (a: number, e: number, wanted: boolean): Promise<Chunk> =>
+      ({ bytes: wanted && e > a ? await this.img.read(rgn, a, e - a) : new Uint8Array(0), base: a });
+    const mainKinds = (sd.kinds & (KIND_POINTS | KIND_IDX_POINTS) ? DECODE_POINTS : 0)
+      | (sd.kinds & KIND_LINES ? DECODE_LINES : 0) | (sd.kinds & KIND_POLYGONS ? DECODE_POLYGONS : 0);
+    const [main, pg, ln, pt] = await Promise.all([
+      chunk(sd.rgnStart, sd.rgnEnd, (mainKinds & kinds) !== 0),
+      ...extRanges(sd).map(([a, e], i) => chunk(a, e, (kinds & [DECODE_POLYGONS, DECODE_LINES, DECODE_POINTS][i]) !== 0)),
+    ]);
     return { main, ext: [pg, ln, pt] };
+  }
+
+  /** A subdivision's objects (of the kinds in `kinds`, `DECODE_*` bits: all by default). */
+  async decode(tile: MapTile, sd: Subdivision, stats: DecodeStats = { sections: 0, badSections: 0 }, kinds = DECODE_ALL): Promise<RawObject[]> {
+    return decodeSubdivision(await this.readSubdivision(tile, sd, kinds), sd, stats, kinds);
   }
 
   /** A whole subfile (e.g. `14057406.NOD`), or null when the map doesn't have it. */

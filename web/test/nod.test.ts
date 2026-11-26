@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { pairs } from '../src/img/rgn';
 import { decodeAll } from '../src/map/decodeAll';
 import { GarminMap } from '../src/map/garminMap';
 import { nod2StartNodes, parseNodHeader, parseNode, readNodes, type NodHeader, type NodNode } from '../src/routing/nod';
@@ -83,7 +84,7 @@ describe.skipIf(!hasRealData)('NOD on real data (Detailed)', () => {
     await decodeAll(map, (tile, _sd, obj) => {
       if (obj.kind !== 'line' || obj.labelSrc !== 'net') return;
       const t = tiles.get(tile.id);
-      if (t) for (const [x, y] of obj.coords) t.vertices.add(`${x},${y}`);
+      if (t) for (const [x, y] of pairs(obj.xy)) t.vertices.add(`${x},${y}`);
     }, { bits: Math.max(...map.bands.keys()) });
   }, 300_000);
   afterAll(() => src.close());

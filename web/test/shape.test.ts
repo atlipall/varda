@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { decodeSubdivision, type RawObject } from '../src/img/rgn';
+import { decodeSubdivision, pairs, type RawObject } from '../src/img/rgn';
 import type { Subdivision } from '../src/img/tre';
 import { GarminMap, type MapTile } from '../src/map/garminMap';
 import { fastestRoute, GraphBuilder, metresBetween, NodeIndex, UNITS_PER_DEG, type Route } from '../src/routing/graph';
@@ -68,7 +68,7 @@ describe.skipIf(!hasRealData)('routeShape on real data', () => {
       const bytes = await map.readSubdivision(tile, sd);
       const objs = decodeSubdivision(bytes, sd, { sections: 0, badSections: 0 });
       for (const o of objs) {
-        if (o.kind === 'line' && o.labelSrc === 'net') for (const [x, y] of o.coords) vertices.add(`${x},${y}`);
+        if (o.kind === 'line' && o.labelSrc === 'net') for (const [x, y] of pairs(o.xy)) vertices.add(`${x},${y}`);
       }
       return objs;
     };

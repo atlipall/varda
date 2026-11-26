@@ -5,7 +5,7 @@ import type { RawObject } from '../src/img/rgn';
 import { shiftOf, subdivisionBounds } from '../src/img/tre';
 import { decodeAll } from '../src/map/decodeAll';
 import { GarminMap } from '../src/map/garminMap';
-import { buildTile, coordsBounds, dedupeLabels, paddedSubdivisionBounds, polygonLabelAnchor, simplifyLine, stitchLines, subPixel, SubdivisionCache } from '../src/tiles/buildTile';
+import { buildTile, dedupeLabels, paddedSubdivisionBounds, polygonLabelAnchor, simplifyLine, stitchLines, subPixel, SubdivisionCache, decodedBytes, xyBounds } from '../src/tiles/buildTile';
 import { latToTileY, lonToTileX, tileBounds } from '../src/tiles/tileMath';
 import { nodeSource } from './helpers/nodeSource';
 import { DETAILED, hasRealData } from './helpers/paths';
@@ -179,18 +179,18 @@ describe('polygonLabelAnchor', () => {
 
 describe('SubdivisionCache', () => {
   const objs = (n: number): RawObject[] => [
-    { kind: 'line', type: 0, label: 0, labelSrc: 'lbl', coords: Array.from({ length: n }, () => [0, 0]) },
+    { kind: 'line', type: 0, label: 0, labelSrc: 'lbl', xy: new Int32Array(2 * n) },
   ];
 
-  test('evicts least-recently-used entries once the total point budget is exceeded', async () => {
-    const cache = new SubdivisionCache(10);
+  test('evicts least-recently-used entries once their size in bytes is over the budget', async () => {
+    const cache = new SubdivisionCache(2 * decodedBytes(objs(6)) - 1);
     const calls: Record<string, number> = {};
     const load = (key: string, n: number) => async () => {
       calls[key] = (calls[key] ?? 0) + 1;
       return objs(n);
     };
     await cache.get('a', load('a', 6));
-    await cache.get('b', load('b', 6)); // total 12 > budget 10: evicts the LRU entry ('a')
+    await cache.get('b', load('b', 6)); // both over the budget: evicts the LRU entry ('a')
     await cache.get('a', load('a', 6)); // must reload: was evicted
     expect(calls).toEqual({ a: 2, b: 1 });
   });
@@ -311,7 +311,7 @@ describe.skipIf(!hasRealData)('buildTile on real data', () => {
       const halfW = sd.halfWidth * k;
       const halfH = sd.halfHeight * k;
       const [sw, ss, se, sn] = subdivisionBounds(sd);
-      const [objW, objS, objE, objN] = coordsBounds(obj.coords);
+      const [objW, objS, objE, objN] = xyBounds(obj.xy);
       const overX = Math.max(0, sw - objW, objE - se);
       const overY = Math.max(0, ss - objS, objN - sn);
       const fracX = halfW > 0 ? overX / halfW : overX > 0 ? Infinity : 0;

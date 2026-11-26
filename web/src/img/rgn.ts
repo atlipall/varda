@@ -20,7 +20,51 @@ export interface RawObject {
   type: number;
   label: number;
   labelSrc: LabelSrc;
-  coords: Array<[number, number]>;
+  /** The points in map units, x and y in turn. One buffer holds the points of every object of a
+   *  subdivision (each object's `xy` is a view into it): arrays of [x, y] pairs took over 130
+   *  bytes a point, these take 8. */
+  xy: Int32Array;
+}
+
+/** An object's points as [x, y] pairs, for code that works on those (a new array each call). */
+export function pairs(xy: Int32Array): Array<[number, number]> {
+  const out = new Array<[number, number]>(xy.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = [xy[2 * i], xy[2 * i + 1]];
+  return out;
+}
+
+/** Pairs packed the other way round, into one array of x and y in turn. */
+export function packed(points: ReadonlyArray<readonly [number, number]>): Int32Array {
+  const out = new Int32Array(points.length * 2);
+  points.forEach(([x, y], i) => {
+    out[2 * i] = x;
+    out[2 * i + 1] = y;
+  });
+  return out;
+}
+
+/** Which kinds of object `decodeSubdivision` decodes (the others' sections are skipped unread). */
+export const DECODE_POINTS = 1;
+export const DECODE_LINES = 2;
+export const DECODE_POLYGONS = 4;
+export const DECODE_ALL = DECODE_POINTS | DECODE_LINES | DECODE_POLYGONS;
+
+const NO_POINTS = new Int32Array(0);
+
+/** The points of one subdivision's objects as they're decoded, in one growing buffer. */
+class PointBuffer {
+  buf = new Int32Array(1024);
+  length = 0;
+
+  push(x: number, y: number): void {
+    if (this.length + 2 > this.buf.length) {
+      const bigger = new Int32Array(this.buf.length * 2);
+      bigger.set(this.buf);
+      this.buf = bigger;
+    }
+    this.buf[this.length++] = x;
+    this.buf[this.length++] = y;
+  }
 }
 
 export interface DecodeStats {
@@ -39,23 +83,23 @@ function bitstream(c: Chunk, p: number, n: number): Uint8Array {
   return c.bytes.subarray(start, start + n);
 }
 
-function walk(sd: Subdivision, dx: number, dy: number, deltas: Array<[number, number]>): Array<[number, number]> {
+function walk(pts: PointBuffer, sd: Subdivision, dx: number, dy: number, deltas: Array<[number, number]>): void {
   const k = 2 ** shiftOf(sd);
   let x = sd.cx + dx * k;
   let y = sd.cy + dy * k;
-  const coords: Array<[number, number]> = [[x, y]];
+  pts.push(x, y);
   for (const [ddx, ddy] of deltas) {
     if (ddx === 0 && ddy === 0) continue;
     x += ddx * k;
     y += ddy * k;
-    coords.push([x, y]);
+    pts.push(x, y);
   }
-  return coords;
 }
 
+/** An object's size in bytes and the object, its points pushed to the buffer (`xy` set later). */
 type Decoded = [number, RawObject];
 
-function point(c: Chunk, o: number, sd: Subdivision): Decoded {
+function point(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision): Decoded {
   const k = 2 ** shiftOf(sd);
   const lb = b24(c, o + 1);
   const x = sd.cx + bs16(c, o + 4) * k;
@@ -66,10 +110,11 @@ function point(c: Chunk, o: number, sd: Subdivision): Decoded {
     sub = b8(c, o + 8);
     size = 9;
   }
-  return [size, { kind: 'point', type: (b8(c, o) << 8) | sub, label: lb & 0x3fffff, labelSrc: lb & 0x400000 ? 'poi' : 'lbl', coords: [[x, y]] }];
+  pts.push(x, y);
+  return [size, { kind: 'point', type: (b8(c, o) << 8) | sub, label: lb & 0x3fffff, labelSrc: lb & 0x400000 ? 'poi' : 'lbl', xy: NO_POINTS }];
 }
 
-function poly(c: Chunk, o: number, sd: Subdivision, line: boolean): Decoded {
+function poly(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision, line: boolean): Decoded {
   const t = b8(c, o);
   const type = line ? t & 0x3f : t & 0x7f;
   const lb = b24(c, o + 1);
@@ -87,10 +132,11 @@ function poly(c: Chunk, o: number, sd: Subdivision, line: boolean): Decoded {
   const info = b8(c, p);
   p += 1;
   const deltas = decodeDeltas(bitstream(c, p, n), info, false, (lb & 0x400000) !== 0);
-  return [p + n - o, { kind: line ? 'line' : 'polygon', type, label: lb & 0x3fffff, labelSrc: lb & 0x800000 ? 'net' : 'lbl', coords: walk(sd, dx, dy, deltas) }];
+  walk(pts, sd, dx, dy, deltas);
+  return [p + n - o, { kind: line ? 'line' : 'polygon', type, label: lb & 0x3fffff, labelSrc: lb & 0x800000 ? 'net' : 'lbl', xy: NO_POINTS }];
 }
 
-function poly2(c: Chunk, o: number, sd: Subdivision, line: boolean): Decoded {
+function poly2(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision, line: boolean): Decoded {
   const t = b8(c, o);
   const st = b8(c, o + 1);
   const dx = bs16(c, o + 2);
@@ -114,10 +160,11 @@ function poly2(c: Chunk, o: number, sd: Subdivision, line: boolean): Decoded {
     p += 3;
   }
   const type = 0x10000 | (t << 8) | (st & 0x1f);
-  return [p - o, { kind: line ? 'line' : 'polygon', type, label, labelSrc: 'lbl', coords: walk(sd, dx, dy, deltas) }];
+  walk(pts, sd, dx, dy, deltas);
+  return [p - o, { kind: line ? 'line' : 'polygon', type, label, labelSrc: 'lbl', xy: NO_POINTS }];
 }
 
-function point2(c: Chunk, o: number, sd: Subdivision): Decoded {
+function point2(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision): Decoded {
   const k = 2 ** shiftOf(sd);
   const t = b8(c, o);
   const st = b8(c, o + 1);
@@ -133,38 +180,48 @@ function point2(c: Chunk, o: number, sd: Subdivision): Decoded {
     size += 3;
   }
   if (st & 0x80) size += 1;
-  return [size, { kind: 'point', type: 0x10000 | (t << 8) | (st & 0x1f), label, labelSrc, coords: [[x, y]] }];
+  pts.push(x, y);
+  return [size, { kind: 'point', type: 0x10000 | (t << 8) | (st & 0x1f), label, labelSrc, xy: NO_POINTS }];
 }
 
-function run(stats: DecodeStats, out: RawObject[], start: number, end: number, decodeOne: (o: number) => Decoded): void {
+/** Decodes one section's objects into `out`, with where each one's points start in `pts` (`ends`
+ *  gets where they end). A section that doesn't decode cleanly is left out whole. */
+function run(
+  stats: DecodeStats, out: RawObject[], ends: number[], pts: PointBuffer, start: number, end: number,
+  decodeOne: (o: number) => Decoded,
+): void {
   stats.sections += 1;
-  const local: RawObject[] = [];
+  const [count, mark] = [out.length, pts.length];
   let o = start;
   try {
     while (o < end) {
       const [size, obj] = decodeOne(o);
       o += size;
-      local.push(obj);
+      out.push(obj);
+      ends.push(pts.length);
     }
   } catch (err) {
     if (!(err instanceof RangeError)) throw err;
-    stats.badSections += 1;
-    return;
+    o = -1;
   }
   if (o !== end) {
     stats.badSections += 1;
-    return;
+    out.length = ends.length = count;
+    pts.length = mark;
   }
-  out.push(...local);
 }
 
 const SECTIONS = [KIND_POINTS, KIND_IDX_POINTS, KIND_LINES, KIND_POLYGONS];
+const decodeBit = (kind: number) => (kind === KIND_LINES ? DECODE_LINES : kind === KIND_POLYGONS ? DECODE_POLYGONS : DECODE_POINTS);
 
-export function decodeSubdivision(bytes: SubdivisionBytes, sd: Subdivision, stats: DecodeStats): RawObject[] {
+/** The subdivision's objects of the kinds in `kinds` (`DECODE_*` bits; all by default). */
+export function decodeSubdivision(bytes: SubdivisionBytes, sd: Subdivision, stats: DecodeStats, kinds = DECODE_ALL): RawObject[] {
   const out: RawObject[] = [];
+  const ends: number[] = [];
+  const pts = new PointBuffer();
   const c = bytes.main;
   const present = SECTIONS.filter((k) => sd.kinds & k);
-  if (present.length && sd.rgnEnd > sd.rgnStart) {
+  if (present.some((k) => kinds & decodeBit(k)) && sd.rgnEnd > sd.rgnStart) {
     // The section offset table itself (not just each section's body) can run past the chunk on a
     // malformed subdivision; treat that the same as a bad section instead of throwing out of
     // decodeSubdivision (see `run`'s own RangeError handling below).
@@ -180,16 +237,21 @@ export function decodeSubdivision(bytes: SubdivisionBytes, sd: Subdivision, stat
     }
     if (starts) {
       const resolvedStarts = starts;
-      const ends = [...resolvedStarts.slice(1), sd.rgnEnd];
+      const sectionEnds = [...resolvedStarts.slice(1), sd.rgnEnd];
       present.forEach((kind, i) => {
-        if (kind === KIND_POINTS || kind === KIND_IDX_POINTS) run(stats, out, resolvedStarts[i], ends[i], (o) => point(c, o, sd));
-        else run(stats, out, resolvedStarts[i], ends[i], (o) => poly(c, o, sd, kind === KIND_LINES));
+        if (!(kinds & decodeBit(kind))) return;
+        if (kind === KIND_POINTS || kind === KIND_IDX_POINTS) run(stats, out, ends, pts, resolvedStarts[i], sectionEnds[i], (o) => point(pts, c, o, sd));
+        else run(stats, out, ends, pts, resolvedStarts[i], sectionEnds[i], (o) => poly(pts, c, o, sd, kind === KIND_LINES));
       });
     }
   }
   const [[pgA, pgE], [lnA, lnE], [ptA, ptE]] = extRanges(sd);
-  if (pgE > pgA) run(stats, out, pgA, pgE, (o) => poly2(bytes.ext[0], o, sd, false));
-  if (lnE > lnA) run(stats, out, lnA, lnE, (o) => poly2(bytes.ext[1], o, sd, true));
-  if (ptE > ptA) run(stats, out, ptA, ptE, (o) => point2(bytes.ext[2], o, sd));
+  if (kinds & DECODE_POLYGONS && pgE > pgA) run(stats, out, ends, pts, pgA, pgE, (o) => poly2(pts, bytes.ext[0], o, sd, false));
+  if (kinds & DECODE_LINES && lnE > lnA) run(stats, out, ends, pts, lnA, lnE, (o) => poly2(pts, bytes.ext[1], o, sd, true));
+  if (kinds & DECODE_POINTS && ptE > ptA) run(stats, out, ends, pts, ptA, ptE, (o) => point2(pts, bytes.ext[2], o, sd));
+  const all = pts.buf.slice(0, pts.length);
+  out.forEach((obj, i) => {
+    obj.xy = all.subarray(i ? ends[i - 1] : 0, ends[i]);
+  });
   return out;
 }

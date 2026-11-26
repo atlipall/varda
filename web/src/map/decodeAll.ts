@@ -1,4 +1,4 @@
-import { decodeSubdivision, type DecodeStats, type RawObject } from '../img/rgn';
+import type { DecodeStats, RawObject } from '../img/rgn';
 import type { Subdivision } from '../img/tre';
 import type { GarminMap, MapTile } from './garminMap';
 
@@ -15,7 +15,7 @@ export async function decodeAll(
       .flatMap(([, sds]) => sds));
     for (const sd of tile.tre.subdivisions) {
       if (!wanted.has(sd)) continue;
-      for (const obj of decodeSubdivision(await map.readSubdivision(tile, sd), sd, stats)) {
+      for (const obj of await map.decode(tile, sd, stats)) {
         if (visit(tile, sd, obj) === false) return stats;
       }
     }
