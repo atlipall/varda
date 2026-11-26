@@ -41,16 +41,41 @@ export class OverviewBuilder {
   }
 
   /** `bytes` is one whole .hgt file of `fileStep` samples per degree (1200, or 3600 for 1″); only
-   *  the samples the overview keeps are decoded. */
-  add(south: number, west: number, bytes: Uint8Array, fileStep = HGT_STEP): void {
+   *  the samples the overview keeps are decoded. Neighbouring squares share their edge samples:
+   *  the one added last gives them, except where `keeps(south, west)` says a neighbour already in
+   *  the overview (seeded) does, as it would have come later in a full build. */
+  add(south: number, west: number, bytes: Uint8Array, fileStep = HGT_STEP, keeps?: (south: number, west: number) => boolean): void {
     const { step, cols, data } = this.o;
+    const n = HGT_STEP / step;
     const r0 = ((this.southMax - south) * HGT_STEP) / step;
     const c0 = ((west - this.westMin) * HGT_STEP) / step;
     const k = (step * fileStep) / HGT_STEP; // file samples between overview samples
     const size = fileStep + 1;
-    for (let r = 0; r <= HGT_STEP / step; r++) {
-      for (let c = 0; c <= HGT_STEP / step; c++) data[(r0 + r) * cols + c0 + c] = hgtSample(bytes, (r * k * size + c * k) * 2);
+    // The squares sharing a sample on the edge: row 0 is the north edge, column 0 the west one.
+    const kept = (r: number, c: number) => {
+      const dLat = r === 0 ? [0, 1] : r === n ? [0, -1] : [0];
+      const dLon = c === 0 ? [0, -1] : c === n ? [0, 1] : [0];
+      for (const a of dLat) for (const b of dLon) if ((a || b) && keeps!(south + a, west + b)) return true;
+      return false;
+    };
+    for (let r = 0; r <= n; r++) {
+      for (let c = 0; c <= n; c++) {
+        if (keeps && (r === 0 || r === n || c === 0 || c === n) && kept(r, c)) continue;
+        data[(r0 + r) * cols + c0 + c] = hgtSample(bytes, (r * k * size + c * k) * 2);
+      }
     }
+  }
+
+  /** Starts from an earlier overview (of some of the squares, at the same step): its samples are
+   *  copied in, so only new or replaced squares need adding. False when it doesn't fit inside. */
+  seed(old: Overview): boolean {
+    const { step, west, north, cols, data } = this.o;
+    if (old.step !== step) return false;
+    const r0 = ((north - old.north) * HGT_STEP) / step;
+    const c0 = ((old.west - west) * HGT_STEP) / step;
+    if (r0 < 0 || c0 < 0 || r0 + old.rows > this.o.rows || c0 + old.cols > cols || old.data.length !== old.rows * old.cols) return false;
+    for (let r = 0; r < old.rows; r++) data.set(old.data.subarray(r * old.cols, (r + 1) * old.cols), (r0 + r) * cols + c0);
+    return true;
   }
 
   finish(): Overview {
@@ -58,7 +83,33 @@ export class OverviewBuilder {
   }
 }
 
-const MAGIC = 0x4f4d4544; // "DEMO" little-endian
+/** For adding squares to an overview seeded with `kept` (squares of `all`, in the order a full
+ *  build adds them): the `keeps` for square `t`, so the result is the same as a full build's. */
+export function keptAfter<T extends { south: number; west: number }>(all: T[], kept: Set<T>): (t: T) => (south: number, west: number) => boolean {
+  const order = new Map(all.map((t, i) => [`${t.south},${t.west}`, i]));
+  const keptAt = new Set([...kept].map((t) => `${t.south},${t.west}`));
+  return (t) => {
+    const mine = order.get(`${t.south},${t.west}`) ?? -1;
+    return (south, west) => {
+      const key = `${south},${west}`;
+      return keptAt.has(key) && (order.get(key) ?? -1) > mine;
+    };
+  };
+}
+
+/** Whether `o` is the overview of exactly the area of `tiles` (as OverviewBuilder makes it). */
+export function coversExactly(o: Overview, tiles: Array<{ south: number; west: number }>, step = 8): boolean {
+  if (!tiles.length || o.step !== step) return false;
+  const souths = tiles.map((t) => t.south);
+  const wests = tiles.map((t) => t.west);
+  const north = Math.max(...souths) + 1;
+  const west = Math.min(...wests);
+  const rows = ((north - Math.min(...souths)) * HGT_STEP) / step + 1;
+  const cols = ((Math.max(...wests) + 1 - west) * HGT_STEP) / step + 1;
+  return o.north === north && o.west === west && o.rows === rows && o.cols === cols;
+}
+
+const MAGIC =0x4f4d4544; // "DEMO" little-endian
 
 export function encodeOverview(o: Overview): Uint8Array {
   const out = new Uint8Array(24 + o.data.length * 2);

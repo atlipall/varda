@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { HGT_SIZE_ERROR, hgtStep, onePerSquare, parseHgtName } from '../dem/hgt';
-import { encodeOverview, OverviewBuilder } from '../dem/overview';
+import { coversExactly, decodeOverview, encodeOverview, keptAfter, OverviewBuilder, type Overview } from '../dem/overview';
 import { ImgError } from '../img/bytes';
 import { BlobSource } from '../img/source';
 import { storageRoot } from '../channel';
@@ -61,9 +61,18 @@ function parseHgtFiles(hgt: File[]): Hgt[] {
   });
 }
 
+/** A set's stored overview, or null when it's missing or can't be read. */
+async function readOverview(dir: FileSystemDirectoryHandle, name: string): Promise<Overview | null> {
+  try {
+    return decodeOverview(new Uint8Array(await (await (await dir.getFileHandle(name)).getFile()).arrayBuffer()));
+  } catch {
+    return null;
+  }
+}
+
 /** Writes elevation files into a set: a new one (`into` null) or an existing one, where a square it
- *  already has is replaced (the finer file wins; the new one on a tie). The set's overview is built
- *  again from all of its files. Nothing a map may be reading is overwritten: replaced squares and
+ *  already has is replaced (the finer file wins; the new one on a tie). The set's overview is made
+ *  anew: the old one with the written squares added in. Nothing a map may be reading is overwritten: replaced squares and
  *  the overview get new names, `set.json` (written last) switches to them, and the files it no
  *  longer lists are removed the next time files are added. Returns the set's id. */
 async function storeElevation(hgt: File[], into: string | null): Promise<string> {
@@ -90,11 +99,19 @@ async function storeElevation(hgt: File[], into: string | null): Promise<string>
   const builder = new OverviewBuilder(all);
   const writing = all.filter((h) => !storedName.has(h));
   await checkSpace(writing.reduce((n, h) => n + h.file.size, 0));
+  // Adding to a set: its overview already holds the squares kept, so only the new ones are read
+  // (not every old file again: over a GB for a set of fifty 1″ squares). Rebuilt from all the
+  // files when the old overview can't be used.
+  const before = old ? await readOverview(dir, old.overview) : null;
+  const seeded = !!before && coversExactly(before, oldFiles) && builder.seed(before);
+  const kept = new Set(seeded ? all.filter((h) => storedName.has(h)) : []);
+  const keeps = keptAfter(all, kept);
 
   try {
     const taken = new Set(old?.files ?? []);
     const stamp = Date.now();
     for (const [i, h] of all.entries()) {
+      if (kept.has(h)) continue;
       const bytes = new Uint8Array(await h.file.arrayBuffer());
       if (!storedName.has(h)) {
         const name = taken.has(h.name) ? h.name.replace(/\.hgt$/, `.${stamp}.hgt`) : h.name;
@@ -102,7 +119,7 @@ async function storeElevation(hgt: File[], into: string | null): Promise<string>
         storedName.set(h, name);
         progress(`Copying elevation ${writing.indexOf(h) + 1}/${writing.length}`);
       } else if (i % 4 === 0) progress('Reading elevation…');
-      builder.add(h.south, h.west, bytes, h.step);
+      builder.add(h.south, h.west, bytes, h.step, seeded ? keeps(h) : undefined);
     }
     const overview = old ? `overview.${stamp}.bin` : 'overview.bin';
     await writeAll(dir, overview, encodeOverview(builder.finish()));
