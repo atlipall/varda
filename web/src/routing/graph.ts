@@ -28,8 +28,8 @@ export interface RoadGraph {
   edgeTo: Int32Array;
   /** Metres. */
   edgeLen: Float32Array;
-  /** km/h used for travel time. */
-  edgeSpeed: Float32Array;
+  /** km/h used for travel time, whole (1-255; Garmin speed classes are 5-128). */
+  edgeSpeed: Uint8Array;
   edgeFlags: Uint8Array;
   /** The edge's road: its map tile's index (0 when the edge has no road) and its NET offset
    *  (−1 when unknown). */
@@ -49,7 +49,8 @@ export interface RoadGraph {
 /**
  * Node ids by exact position: open addressing over the ids, positions read from `xs`/`ys`. Typed
  * arrays throughout, so a big map's millions of nodes (3.6 million on Freizeitkarte Denmark) cost
- * 4-8 bytes a slot instead of a Map entry each.
+ * 4-8 bytes a slot instead of a Map entry each. Up to three quarters full before it doubles
+ * (Denmark's 2.6 million graph nodes take 4.2 million slots, 17 MB, not 8.4 million).
  */
 export class XYTable {
   private slots: Int32Array;
@@ -59,7 +60,7 @@ export class XYTable {
   /** `xs`/`ys` are read through `.data`, so they may be replaced by grown copies. */
   constructor(private readonly xs: { data: Int32Array }, private readonly ys: { data: Int32Array }, capacity = 0) {
     let size = 16;
-    while (size < capacity * 2) size *= 2;
+    while (size * 3 < capacity * 4) size *= 2;
     this.slots = new Int32Array(size).fill(-1);
     this.mask = size - 1;
   }
@@ -90,7 +91,7 @@ export class XYTable {
     const i = this.slot(this.xs.data[id], this.ys.data[id]);
     if (this.slots[i] >= 0) return this.slots[i];
     this.slots[i] = id;
-    if (++this.count * 2 > this.slots.length) this.grow();
+    if (++this.count * 4 > this.slots.length * 3) this.grow();
     return id;
   }
 
@@ -137,7 +138,7 @@ export class GraphBuilder {
   private readonly from = new Column(new Int32Array(1024));
   private readonly to = new Column(new Int32Array(1024));
   private readonly len = new Column(new Float32Array(1024));
-  private readonly speed = new Column(new Float32Array(1024));
+  private readonly speed = new Column(new Uint8Array(1024));
   private readonly flags = new Column(new Uint8Array(1024));
   private readonly tile = new Column(new Uint16Array(1024));
   private readonly net = new Column(new Int32Array(1024));
@@ -154,7 +155,7 @@ export class GraphBuilder {
     return this.ids.add(id);
   }
 
-  /** Adds a directed edge; `shape` is the interior points as a flat [x, y, x, y, …] list. */
+  /** Adds a directed edge; `kmh` is whole (kept in a byte); `shape` is the interior points as a flat [x, y, x, y, …] list. */
   edge(a: number, b: number, metres: number, kmh: number, flags: number, shape: number[] | null = null, road: { tile: number; net: number } | null = null, rank = TOP_RANK): void {
     if (a === b) return;
     if (shape) this.geom.set(this.from.length, shape);
