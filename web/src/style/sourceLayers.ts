@@ -24,8 +24,9 @@ export const areaLayer = (t: number) => `p${t}`;
 /** Bumped when the tiles' layout changes, so a server's cached tiles aren't drawn with a new style. */
 export const TILE_FORMAT = 2;
 
-export const isLineLayer = (name: string | undefined) => name !== undefined && /^l(\d+|-other)$|^contours$|^line-names$/.test(name);
-export const isAreaLayer = (name: string | undefined) => name !== undefined && /^p\d+$/.test(name);
+export const isLineLayer = (name: string | undefined) =>
+  name === CONTOURS || name === LINE_NAMES || name === OTHER_LINES || /^l\d+$/.test(name ?? '');
+export const isAreaLayer = (name: string | undefined) => /^p\d+$/.test(name ?? '');
 
 /** The line types the style gives a layer of their own (all others are drawn by `ln-other`). */
 export const styledLineTypes = (typ: Typ): Set<number> => new Set([...typ.lines.keys(), ...LINE_STYLES.keys()]);
