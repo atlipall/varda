@@ -24,7 +24,7 @@ import { readSetting, writeSetting } from '../ui/settings';
 import { HeightControl, LocationControl } from './location';
 import { RoutePlanner } from './route';
 import { SavedPanel } from './savedPanel';
-import { DriveSync } from './driveSync';
+import { SyncLoader } from './syncLoader';
 import { Photos } from './photos';
 import { androidApp, DiagnosticsPanel } from './diagnostics';
 import { TripRecorder } from './tripRecorder';
@@ -434,7 +434,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     }
   };
 
-  const app = { map, perf, ready: false, placesReady: false, search: (_q: string): Place[] | null => null, samples: SAMPLES, tracks: null as TracksPanel | null, overlays: null as OverlayMap | null, trackCard: null as TrackCard | null, trip: null as TripRecorder | null, lastIntent: null as string | null, routePlanner: null as RoutePlanner | null, saved: null as SavedPanel | null, photos: null as Photos | null, sync: null as DriveSync | null, navigator: null as Navigator | null, screenAwake: awake };
+  const app = { map, perf, ready: false, placesReady: false, search: (_q: string): Place[] | null => null, samples: SAMPLES, tracks: null as TracksPanel | null, overlays: null as OverlayMap | null, trackCard: null as TrackCard | null, trip: null as TripRecorder | null, lastIntent: null as string | null, routePlanner: null as RoutePlanner | null, saved: null as SavedPanel | null, photos: null as Photos | null, sync: null as SyncLoader | null, navigator: null as Navigator | null, screenAwake: awake };
   window.__app = app;
   // F-road/track classes from the place-index pass, keyed by tile id and NET offset. Resolved
   // once `loadPlaces` finishes; a route requested before then awaits this instead. Rejected if
@@ -603,7 +603,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     );
     app.saved = saved;
     // Google Drive sync of the saved items and tracks (offered when the app has a Google client ID).
-    const sync = new DriveSync(async () => {
+    const sync = new SyncLoader(async () => {
       await saved.reload();
       await tracks.reload();
     });
@@ -685,6 +685,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
       void tracks.loaded.then(() => trip?.receiveStartup());
     }
     $('sync-open').onclick = () => {
+      sync.load().catch((err) => console.warn('sync', err));
       setMenu(false);
       $('sync-panel').hidden = false;
       focusPanel('sync-panel');

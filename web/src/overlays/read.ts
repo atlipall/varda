@@ -1,9 +1,9 @@
 import { readOverlayFile, type Overlay } from './kml';
-import { parseShapefile, SHAPEFILE_EXTENSIONS, shapefileGroups, type ShapefileFields } from './shapefile';
+import { OVERLAY_EXTENSIONS, SHAPEFILE_EXTENSIONS } from './extensions';
+import { parseShapefile, shapefileGroups, type ShapefileFields } from './shapefile';
 import { unzip } from './zip';
 
-/** The files Add… takes as overlays: KML, KMZ, a Shapefile's files, or a zip of either. */
-export const OVERLAY_EXTENSIONS = ['kml', 'kmz', 'zip', ...SHAPEFILE_EXTENSIONS];
+export { OVERLAY_EXTENSIONS };
 
 export interface PickedFile {
   name: string;

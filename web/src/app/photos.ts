@@ -1,8 +1,6 @@
 import type * as maplibregl from 'maplibre-gl';
-import { cameraOf, hasLocation, inspect, makeCopy, preview, type Inspected } from '../photos/copy';
-import { exifOf, readSegments, withSegments, xmpOf, xmpSegment, isJpeg } from '../photos/jpeg';
+import type { Inspected } from '../photos/copy';
 import { dayText, deletePhoto, getFiles, listPhotos, putFiles, putPhoto, shareName, takenText, type Photo, type PhotoFiles } from '../photos/photo';
-import { withDescription } from '../photos/xmp';
 import { deletions, noteDeleted, setDeletions } from '../saved/deleted';
 import { newId } from '../saved/saved';
 import { acceptDrops, extensions } from '../ui/drop';
@@ -12,6 +10,8 @@ import { PhotoLayer } from './photoLayer';
 import { PhotoViewer } from './photoViewer';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+/** Reading and copying photos: loaded when photos are first added or shared. */
+const handling = () => import('../photos/handling');
 
 /** How long Undo is offered after adding or deleting (ms). */
 const UNDO_MS = 8000;
@@ -246,6 +246,7 @@ export class Photos {
     $<HTMLButtonElement>('photos-add').disabled = true;
     try {
       this.show(false);
+      const { cameraOf, hasLocation, inspect, makeCopy } = await handling();
       const read: Inspected[] = [];
       for (const [i, f] of files.entries()) {
         this.note('Reading photos', { count: `${i + 1} of ${files.length}`, progress: i / files.length, stay: true });
@@ -383,7 +384,7 @@ export class Photos {
       const cap = document.createElement('span');
       cap.textContent = when;
       box.append(pic, cap);
-      void preview(x.file).then((b) => {
+      void handling().then((h) => h.preview(x.file)).then((b) => {
         if (!b) return;
         const u = URL.createObjectURL(b);
         urls.push(u);
@@ -462,6 +463,7 @@ export class Photos {
       if (!f) throw new Error('This photo is still on its way from Google Drive.');
       let blob: Blob = f.full;
       const bytes = new Uint8Array(await f.full.arrayBuffer());
+      const { exifOf, isJpeg, readSegments, withDescription, withSegments, xmpOf, xmpSegment } = await handling();
       if (p.description && isJpeg(bytes)) {
         const segs = readSegments(bytes).filter((s) => (s.marker >= 0xe0 && s.marker <= 0xef) || s.marker === 0xfe);
         const xmp = withDescription(xmpOf(segs), p.description)!;

@@ -1,7 +1,8 @@
 import type * as maplibregl from 'maplibre-gl';
 import type { Overlay, OverlayFeature } from '../overlays/kml';
 import { downloadLayer, pickedLayer, type OgcLayer } from '../overlays/ogc';
-import { overlayJobs, readZip } from '../overlays/read';
+/** The readers (KML, Shapefile, zip, projections): loaded when an overlay is first added. */
+const readers = () => import('../overlays/read');
 import { addOverlay, deleteOverlay, getOverlayFeatures, listOverlays, putOverlay, type OverlaySource, type StoredOverlay } from '../overlays/store';
 import { newId } from '../saved/saved';
 import { fitClearOf } from './listButtons';
@@ -81,7 +82,7 @@ export class OverlayMap {
     await this.loaded;
     const added: StoredOverlay[] = [];
     const problems: string[] = [];
-    for (const job of overlayJobs(files)) {
+    for (const job of (await readers()).overlayJobs(files)) {
       try {
         for (const overlay of await job.read()) added.push(await this.keep(overlay));
       } catch (err) {
@@ -107,7 +108,7 @@ export class OverlayMap {
   /** Reads layer `layer` from ogc.gis.is, named and coloured as the picked list says. */
   private async fetchLayer(layer: OgcLayer, onBytes?: (n: number) => void): Promise<Overlay> {
     const bytes = await downloadLayer(layer.id, onBytes);
-    const [first] = await readZip(`${layer.title}.zip`, bytes, layer.fields);
+    const [first] = await (await readers()).readZip(`${layer.title}.zip`, bytes, layer.fields);
     if (!first) throw new Error('The layer came without any shapes.');
     return { ...first, name: layer.title };
   }
