@@ -2,10 +2,10 @@ import type { RawObject } from '../img/rgn';
 import type { Subdivision } from '../img/tre';
 import { objectName, type GarminMap, type MapTile } from '../map/garminMap';
 import { paddedSubdivisionBounds } from '../tiles/buildTile';
-import { EDGE_FROAD, metresBetween, UNITS_PER_DEG, type NodeIndex, type RoadGraph, type Route } from './graph';
+import { EDGE_FROAD, edgeSource, metresBetween, UNITS_PER_DEG, type NodeIndex, type RoadGraph, type Route } from './graph';
 import type { RoadSeg, Shaped } from './plan';
 import type { RoadClass, RoadClasses } from './roadClass';
-import { followRoad, type RoadLine, type RoadLines } from './snap';
+import { followRoad, incoming, type RoadLine, type RoadLines } from './snap';
 
 const same = (a: [number, number], b: [number, number]) => a[0] === b[0] && a[1] === b[1];
 
@@ -35,30 +35,12 @@ export async function routeShape(g: RoadGraph, index: NodeIndex, route: Route, l
   return { coords, segs };
 }
 
-/** Each node's neighbours by edges into it (one-way streets and dual carriageways lead only one
- *  way), made once per graph. */
-const incoming = new WeakMap<RoadGraph, Map<number, number[]>>();
-function into(g: RoadGraph, v: number): number[] {
-  let m = incoming.get(g);
-  if (!m) {
-    m = new Map();
-    for (let u = 0; u + 1 < g.edgeStart.length; u++) {
-      for (let e = g.edgeStart[u]; e < g.edgeStart[u + 1]; e++) {
-        const w = g.edgeTo[e];
-        const list = m.get(w);
-        if (list) list.push(u);
-        else m.set(w, [u]);
-      }
-    }
-    incoming.set(g, m);
-  }
-  return m.get(v) ?? [];
-}
-
 /** A node where three or more roads meet (somewhere a driver has a choice): one joined to at least
  *  three different nodes, by edges out of it or into it. */
 function isJunction(g: RoadGraph, u: number): boolean {
-  const near = new Set<number>(into(g, u));
+  const near = new Set<number>();
+  // Edges into it too: one-way streets and dual carriageways lead only one way.
+  for (const e of incoming(g, u)) near.add(edgeSource(g, e));
   for (let e = g.edgeStart[u]; e < g.edgeStart[u + 1]; e++) near.add(g.edgeTo[e]);
   return near.size >= 3;
 }

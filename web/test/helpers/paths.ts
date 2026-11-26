@@ -7,3 +7,5 @@ export const DETAILED =
 export const F_ROAD_DETAILED =
   REPO + 'map-files/GPSmap.is 2024.21 Android/MAPS - Add content to MAPFILES folder/Iceland GPSmap.is 2024.21 F-Road Detailed.img';
 export const hasRealData = existsSync(DETAILED);
+/** Freizeitkarte Denmark (DNK+_en_gmapsupp.img.zip, unzipped): a big OSM map, 3.6 million routing nodes. */
+export const FZK_DENMARK = REPO + 'map-files/Freizeitkarte DNK/gmapsupp.img';

@@ -27,7 +27,9 @@ export function nodUnitM(flags: number): number {
  */
 export function addTileNetwork(b: GraphBuilder, nodes: Map<number, NodNode>, classes: Map<number, RoadClass>, tile: number, unitM = NOD_UNIT_M): void {
   for (const n of nodes.values()) {
-    const u = b.node(n.x, n.y);
+    // Made at its first usable arc: nodes on footpaths only (a million on Freizeitkarte Denmark)
+    // stay out of the graph.
+    let u = -1;
     for (const a of n.arcs) {
       if (!a.direct) continue;
       if (a.info & 0x08 && !a.forward) continue;
@@ -36,6 +38,7 @@ export function addTileNetwork(b: GraphBuilder, nodes: Map<number, NodNode>, cla
       if (!t) continue;
       const cls = classes.get(a.net) ?? 0;
       const kmh = Math.min(SPEED_CLASS_KMH[a.info & 7], CLASS_CAP_KMH[cls]);
+      if (u < 0) u = b.node(n.x, n.y);
       b.edge(u, b.node(t.x, t.y), a.length * unitM, kmh, cls ? EDGE_FROAD : 0, null, { tile, net: a.net }, Math.min(TOP_RANK, (a.info >> 4) & 7));
     }
   }

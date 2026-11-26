@@ -82,7 +82,7 @@ const lengthOf = (path: Array<[number, number]>) => {
 /** Per graph: the edges into each node, CSR by target (built on first use). */
 const inEdges = new WeakMap<RoadGraph, { start: Int32Array; edges: Int32Array }>();
 
-function incoming(g: RoadGraph, v: number): Int32Array {
+export function incoming(g: RoadGraph, v: number): Int32Array {
   let r = inEdges.get(g);
   if (!r) {
     const n = g.nodeX.length;

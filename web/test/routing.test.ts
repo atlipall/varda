@@ -77,6 +77,29 @@ describe('NOD network', () => {
     addTileNetwork(b, t, new Map([[2, 1]]), 3);
     const g = b.build();
     expect(g.edgeTo.length).toBe(2); // b→c and c→b only
+    // a is on the footpath only: no node for it (big OSM maps have a million such nodes).
+    expect(g.nodeX.length).toBe(2);
+    expect(new NodeIndex(g).nodeAt(U(-21.0), U(64.0))).toBe(-1);
+  });
+
+  test('nodes without a usable arc (only indirect arcs, or none) are left out', () => {
+    expect(build().nodeX.length).toBe(3); // a, b, c; not d (reached only by an indirect arc)
+  });
+
+  test('many nodes: each found by its position, the same position given once', () => {
+    const b = new GraphBuilder();
+    const N = 100_000;
+    const pos = (i: number): [number, number] => [((i * 7919) % 200_003) - 100_000, -((i * 104_729) % 300_007)];
+    const ids: number[] = [];
+    for (let i = 0; i < N; i++) ids.push(b.node(...pos(i)));
+    for (let i = 0; i < N; i++) expect(b.node(...pos(i))).toBe(ids[i]);
+    for (let i = 0; i + 1 < N; i++) b.edge(ids[i], ids[i + 1], 1, 50, 0);
+    const g = b.build();
+    expect(g.nodeX.length).toBe(new Set(ids).size);
+    const idx = new NodeIndex(g);
+    for (let i = 0; i < N; i += 97) expect(idx.nodeAt(...pos(i))).toBe(ids[i]);
+    expect(idx.nodeAt(100_001, 5)).toBe(-1);
+    expect(fastestRoute(g, ids[0], ids[50], true)!.edges.length).toBe(50);
   });
 
   test('the length unit doubles per step of header flag bits 5-7 (GPSmap.is 0x203, mkgmap OSM maps 0x227)', () => {

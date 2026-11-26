@@ -46,37 +46,118 @@ export interface RoadGraph {
   maxSpeed: number;
 }
 
-/** Accumulates nodes (deduplicated by exact coordinate) and edges, then packs them. */
+/**
+ * Node ids by exact position: open addressing over the ids, positions read from `xs`/`ys`. Typed
+ * arrays throughout, so a big map's millions of nodes (3.6 million on Freizeitkarte Denmark) cost
+ * 4-8 bytes a slot instead of a Map entry each.
+ */
+export class XYTable {
+  private slots: Int32Array;
+  private mask: number;
+  private count = 0;
+
+  /** `xs`/`ys` are read through `.data`, so they may be replaced by grown copies. */
+  constructor(private readonly xs: { data: Int32Array }, private readonly ys: { data: Int32Array }, capacity = 0) {
+    let size = 16;
+    while (size < capacity * 2) size *= 2;
+    this.slots = new Int32Array(size).fill(-1);
+    this.mask = size - 1;
+  }
+
+  private slot(x: number, y: number): number {
+    // Murmur3's finalizer: coarse maps' coordinates share their low bits.
+    let h = Math.imul(x, 0x9e3779b1) ^ y;
+    h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+    h ^= h >>> 16;
+    const xs = this.xs.data;
+    const ys = this.ys.data;
+    let i = h & this.mask;
+    for (;;) {
+      const id = this.slots[i];
+      if (id < 0 || (xs[id] === x && ys[id] === y)) return i;
+      i = (i + 1) & this.mask;
+    }
+  }
+
+  /** The id at this position, or -1. */
+  get(x: number, y: number): number {
+    return this.slots[this.slot(x, y)];
+  }
+
+  /** Records `id` (whose position is already in xs/ys) unless one is there; returns the id kept. */
+  add(id: number): number {
+    const i = this.slot(this.xs.data[id], this.ys.data[id]);
+    if (this.slots[i] >= 0) return this.slots[i];
+    this.slots[i] = id;
+    if (++this.count * 2 > this.slots.length) this.grow();
+    return id;
+  }
+
+  private grow(): void {
+    const old = this.slots;
+    this.slots = new Int32Array(old.length * 2).fill(-1);
+    this.mask = this.slots.length - 1;
+    for (const id of old) if (id >= 0) this.slots[this.slot(this.xs.data[id], this.ys.data[id])] = id;
+  }
+}
+
+/** A typed array that grows (by half) as values are pushed. */
+class Column<T extends Int32Array | Float32Array | Uint16Array | Uint8Array> {
+  length = 0;
+  constructor(public data: T) {}
+  push(v: number): void {
+    if (this.length === this.data.length) {
+      const bigger = new (this.data.constructor as new (n: number) => T)(Math.max(64, Math.ceil(this.data.length * 1.5)));
+      bigger.set(this.data);
+      this.data = bigger;
+    }
+    this.data[this.length++] = v;
+  }
+  /** The values in edge order `order` (a permutation of 0 … length - 1). */
+  permuted(order: Int32Array): T {
+    const out = new (this.data.constructor as new (n: number) => T)(order.length);
+    for (let i = 0; i < order.length; i++) out[i] = this.data[order[i]];
+    return out;
+  }
+  /** Empties the column, letting its buffer go. */
+  release(): void {
+    this.data = new (this.data.constructor as new (n: number) => T)(0);
+    this.length = 0;
+  }
+}
+
+/** Accumulates nodes (deduplicated by exact coordinate) and edges, then packs them; build() leaves
+ *  it empty. Columns are typed arrays, each let go once packed, to keep a big map's build within a
+ *  phone's memory. */
 export class GraphBuilder {
-  private readonly ids = new Map<number, number>();
-  private readonly xs: number[] = [];
-  private readonly ys: number[] = [];
-  private readonly from: number[] = [];
-  private readonly to: number[] = [];
-  private readonly len: number[] = [];
-  private readonly speed: number[] = [];
-  private readonly flags: number[] = [];
-  private readonly tile: number[] = [];
-  private readonly net: number[] = [];
-  private readonly rank: number[] = [];
-  private readonly geom: Array<number[] | null> = [];
-  private hasGeom = false;
+  private readonly xs = new Column(new Int32Array(1024));
+  private readonly ys = new Column(new Int32Array(1024));
+  private ids = new XYTable(this.xs, this.ys);
+  private readonly from = new Column(new Int32Array(1024));
+  private readonly to = new Column(new Int32Array(1024));
+  private readonly len = new Column(new Float32Array(1024));
+  private readonly speed = new Column(new Float32Array(1024));
+  private readonly flags = new Column(new Uint8Array(1024));
+  private readonly tile = new Column(new Uint16Array(1024));
+  private readonly net = new Column(new Int32Array(1024));
+  private readonly rank = new Column(new Uint8Array(1024));
+  /** Interior points of the edges that have a shape, by edge (most graphs have none). */
+  private readonly geom = new Map<number, number[]>();
 
   node(x: number, y: number): number {
-    const key = xyKey(x, y);
-    let id = this.ids.get(key);
-    if (id === undefined) {
-      id = this.xs.length;
-      this.ids.set(key, id);
-      this.xs.push(x);
-      this.ys.push(y);
-    }
-    return id;
+    const found = this.ids.get(x, y);
+    if (found >= 0) return found;
+    const id = this.xs.length;
+    this.xs.push(x);
+    this.ys.push(y);
+    return this.ids.add(id);
   }
 
   /** Adds a directed edge; `shape` is the interior points as a flat [x, y, x, y, …] list. */
   edge(a: number, b: number, metres: number, kmh: number, flags: number, shape: number[] | null = null, road: { tile: number; net: number } | null = null, rank = TOP_RANK): void {
     if (a === b) return;
+    if (shape) this.geom.set(this.from.length, shape);
     this.from.push(a);
     this.to.push(b);
     this.len.push(metres);
@@ -85,8 +166,6 @@ export class GraphBuilder {
     this.tile.push(road?.tile ?? 0);
     this.net.push(road?.net ?? -1);
     this.rank.push(rank);
-    this.geom.push(shape);
-    if (shape) this.hasGeom = true;
   }
 
   get nodeCount(): number {
@@ -96,47 +175,55 @@ export class GraphBuilder {
   build(): RoadGraph {
     const n = this.xs.length;
     const m = this.from.length;
+    const nodeX = this.xs.data.slice(0, n);
+    const nodeY = this.ys.data.slice(0, n);
+    this.ids = new XYTable(this.xs, this.ys);
+    this.xs.release();
+    this.ys.release();
     const edgeStart = new Int32Array(n + 1);
-    for (const a of this.from) edgeStart[a + 1]++;
+    for (let e = 0; e < m; e++) edgeStart[this.from.data[e] + 1]++;
     for (let i = 0; i < n; i++) edgeStart[i + 1] += edgeStart[i];
     const fill = edgeStart.slice(0, n);
     const order = new Int32Array(m);
-    for (let e = 0; e < m; e++) order[fill[this.from[e]]++] = e;
-    const edgeTo = new Int32Array(m);
-    const edgeLen = new Float32Array(m);
-    const edgeSpeed = new Float32Array(m);
-    const edgeFlags = new Uint8Array(m);
-    const edgeTile = new Uint16Array(m);
-    const edgeNet = new Int32Array(m);
-    const edgeRank = new Uint8Array(m);
+    for (let e = 0; e < m; e++) order[fill[this.from.data[e]]++] = e;
+    this.from.release();
+    // One column at a time, each source let go once copied: the peak stays near one copy.
+    const take = <T extends Int32Array | Float32Array | Uint16Array | Uint8Array>(c: Column<T>): T => {
+      const out = c.permuted(order);
+      c.release();
+      return out;
+    };
+    const edgeTo = take(this.to);
+    const edgeLen = take(this.len);
+    const edgeSpeed = take(this.speed);
+    const edgeFlags = take(this.flags);
+    const edgeTile = take(this.tile);
+    const edgeNet = take(this.net);
+    const edgeRank = take(this.rank);
     let maxSpeed = 1;
-    let geomPoints = 0;
-    if (this.hasGeom) for (const g of this.geom) geomPoints += g ? g.length / 2 : 0;
-    const geomStart = this.hasGeom ? new Int32Array(m + 1) : undefined;
-    const geomX = this.hasGeom ? new Int32Array(geomPoints) : undefined;
-    const geomY = this.hasGeom ? new Int32Array(geomPoints) : undefined;
-    let gp = 0;
-    for (let i = 0; i < m; i++) {
-      const e = order[i];
-      edgeTo[i] = this.to[e];
-      edgeLen[i] = this.len[e];
-      edgeSpeed[i] = this.speed[e];
-      edgeFlags[i] = this.flags[e];
-      edgeTile[i] = this.tile[e];
-      edgeNet[i] = this.net[e];
-      edgeRank[i] = this.rank[e];
-      if (this.speed[e] > maxSpeed) maxSpeed = this.speed[e];
-      if (geomStart) {
+    for (let i = 0; i < m; i++) if (edgeSpeed[i] > maxSpeed) maxSpeed = edgeSpeed[i];
+    let geomStart: Int32Array | undefined;
+    let geomX: Int32Array | undefined;
+    let geomY: Int32Array | undefined;
+    if (this.geom.size) {
+      let points = 0;
+      for (const g of this.geom.values()) points += g.length / 2;
+      geomStart = new Int32Array(m + 1);
+      geomX = new Int32Array(points);
+      geomY = new Int32Array(points);
+      let gp = 0;
+      for (let i = 0; i < m; i++) {
         geomStart[i] = gp;
-        const g = this.geom[e];
+        const g = this.geom.get(order[i]);
         if (g) for (let k = 0; k < g.length; k += 2) {
-          geomX![gp] = g[k];
-          geomY![gp++] = g[k + 1];
+          geomX[gp] = g[k];
+          geomY[gp++] = g[k + 1];
         }
       }
+      geomStart[m] = gp;
+      this.geom.clear();
     }
-    if (geomStart) geomStart[m] = gp;
-    return { nodeX: Int32Array.from(this.xs), nodeY: Int32Array.from(this.ys), edgeStart, edgeTo, edgeLen, edgeSpeed, edgeFlags, edgeTile, edgeNet, edgeRank, geomStart, geomX, geomY, maxSpeed };
+    return { nodeX, nodeY, edgeStart, edgeTo, edgeLen, edgeSpeed, edgeFlags, edgeTile, edgeNet, edgeRank, geomStart, geomX, geomY, maxSpeed };
   }
 }
 
@@ -355,10 +442,14 @@ export function canArrive(g: RoadGraph, v: number, allowFRoads: boolean): boolea
 }
 
 /** Grid index over the graph's nodes, for snapping a position to the nearest node, plus a lookup
- *  of nodes by exact position. */
+ *  of nodes by exact position. Typed arrays (the cells' nodes in one list), so a big map's millions
+ *  of nodes fit in a phone's memory. */
 export class NodeIndex {
-  private readonly cells = new Map<number, number[]>();
-  private readonly byXY = new Map<number, number>();
+  /** Cell key → the cell's range in `cellNodes`: cellStart[i] … cellStart[i + 1] - 1. */
+  private readonly cellOf = new Map<number, number>();
+  private readonly cellStart: Int32Array;
+  private readonly cellNodes: Int32Array;
+  private readonly byXY: XYTable;
   private readonly main: Uint8Array;
   private static readonly CELL = Math.round(0.05 * UNITS_PER_DEG);
 
@@ -366,20 +457,34 @@ export class NodeIndex {
    *  position never snaps to an isolated stub, e.g. a parking loop that isn't joined to any road. */
   constructor(private readonly g: RoadGraph) {
     const C = NodeIndex.CELL;
+    const n = g.nodeX.length;
     this.main = largestComponent(g);
-    for (let v = 0; v < g.nodeX.length; v++) {
-      this.byXY.set(xyKey(g.nodeX[v], g.nodeY[v]), v);
+    this.byXY = new XYTable({ data: g.nodeX }, { data: g.nodeY }, n);
+    const cell = new Int32Array(n).fill(-1);
+    const counts: number[] = [];
+    for (let v = 0; v < n; v++) {
+      this.byXY.add(v);
       if (!this.main[v]) continue;
       const key = Math.floor(g.nodeX[v] / C) * 100000 + Math.floor(g.nodeY[v] / C);
-      const list = this.cells.get(key);
-      if (list) list.push(v);
-      else this.cells.set(key, [v]);
+      let c = this.cellOf.get(key);
+      if (c === undefined) {
+        c = counts.length;
+        this.cellOf.set(key, c);
+        counts.push(0);
+      }
+      cell[v] = c;
+      counts[c]++;
     }
+    this.cellStart = new Int32Array(counts.length + 1);
+    for (let c = 0; c < counts.length; c++) this.cellStart[c + 1] = this.cellStart[c] + counts[c];
+    const fill = this.cellStart.slice(0, counts.length);
+    this.cellNodes = new Int32Array(this.cellStart[counts.length]);
+    for (let v = 0; v < n; v++) if (cell[v] >= 0) this.cellNodes[fill[cell[v]]++] = v;
   }
 
   /** The node at exactly this position (map units), or -1. */
   nodeAt(x: number, y: number): number {
-    return this.byXY.get(xyKey(x, y)) ?? -1;
+    return this.byXY.get(x, y);
   }
 
   /** Whether node `v` is part of the main road network. */
@@ -401,7 +506,10 @@ export class NodeIndex {
     let bestNode = -1;
     let bestM = maxMetres;
     for (let dx = -rx; dx <= rx; dx++) for (let dy = -ry; dy <= ry; dy++) {
-      for (const v of this.cells.get((cx + dx) * 100000 + (cy + dy)) ?? []) {
+      const c = this.cellOf.get((cx + dx) * 100000 + (cy + dy));
+      if (c === undefined) continue;
+      for (let k = this.cellStart[c]; k < this.cellStart[c + 1]; k++) {
+        const v = this.cellNodes[k];
         const m = metresBetween(x, y, this.g.nodeX[v], this.g.nodeY[v]);
         if (m <= bestM && (!accept || accept(v))) {
           bestM = m;
@@ -412,8 +520,6 @@ export class NodeIndex {
     return bestNode < 0 ? null : { node: bestNode, metres: bestM };
   }
 }
-
-const xyKey = (x: number, y: number) => (x + 0x800000) * 0x1000000 + (y + 0x800000);
 
 /** Nodes of the largest connected part of the graph (edges taken as undirected). */
 export function largestComponent(g: RoadGraph): Uint8Array {
