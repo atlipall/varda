@@ -5,6 +5,7 @@ import { gzipSync } from 'node:zlib';
 import type { StyleSpecification } from 'maplibre-gl';
 import { DEM_TILE_SIZE, MAX_ZOOM, MIN_ZOOM } from '../../web/src/map/zoom';
 import { buildStyle } from '../../web/src/style/buildStyle';
+import { TILE_FORMAT } from '../../web/src/style/sourceLayers';
 import { demoPage } from './demo';
 import type { ServedMap } from './maps';
 import { encodePng } from './png';
@@ -155,12 +156,13 @@ export function createHandler(maps: Map<string, ServedMap>, opts: ServerOptions)
     const at = `${base}/maps/${m.id}`;
     const terrain = m.terrainBounds;
     const { style } = buildStyle(m.style, {
-      tiles: `${at}/tiles/{z}/{x}/{y}.pbf?v=${m.version}`,
+      // The tiles' layout and size are in the address too, so cached tiles from an older server aren't used.
+      tiles: `${at}/tiles/{z}/{x}/{y}.pbf?v=${m.version}-${TILE_FORMAT}`,
       glyphs: `${base}/fonts/{fontstack}/{range}.pbf`,
       sprite: `${at}/sprite?v=${m.version}`,
       bounds: m.map.bounds,
       ...(m.credit ? { attribution: m.credit } : {}),
-      ...(terrain ? { dem: `${at}/terrain/{z}/{x}/{y}.png?v=${m.terrainVersion}`, demBounds: terrain, demMaxZoom: m.terrainMaxZoom } : {}),
+      ...(terrain ? { dem: `${at}/terrain/{z}/{x}/{y}.png?v=${m.terrainVersion}-${DEM_TILE_SIZE}`, demBounds: terrain, demMaxZoom: m.terrainMaxZoom } : {}),
     });
     return { ...style, name: m.name };
   };

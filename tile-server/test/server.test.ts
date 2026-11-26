@@ -205,9 +205,10 @@ describe.skipIf(!hasRealData)('server on the real map', () => {
     expect(res.status).toBe(200);
     const bytes = new Uint8Array(await res.arrayBuffer());
     const tile = new VectorTile(new PbfReader(bytes));
-    const lines = tile.layers.lines;
-    expect(lines.length).toBeGreaterThan(50);
-    const geom = lines.feature(0).loadGeometry();
+    // A layer per line type: 0x06 is the residential streets.
+    const streets = tile.layers.l6;
+    expect(streets.length).toBeGreaterThan(50);
+    const geom = streets.feature(0).loadGeometry();
     expect(geom.length).toBeGreaterThan(0);
     expect(geom[0].length).toBeGreaterThan(1);
     const again = new Uint8Array(await (await fetch(`${base}/maps/${id}/tiles/${z}/${x}/${y}.pbf`)).arrayBuffer());

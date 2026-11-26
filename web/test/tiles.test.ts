@@ -4,7 +4,11 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { RawObject } from '../src/img/rgn';
 import { shiftOf, subdivisionBounds } from '../src/img/tre';
 import { decodeAll } from '../src/map/decodeAll';
+import { emptyTyp, parseTyp } from '../src/img/typ';
 import { GarminMap } from '../src/map/garminMap';
+import { CONTOUR_LINE_TYPES } from '../src/map/zoom';
+import { buildStyle } from '../src/style/buildStyle';
+import { isLineLayer, styledLineTypes } from '../src/style/sourceLayers';
 import { buildTile, coordsBounds, dedupeLabels, paddedSubdivisionBounds, polygonLabelAnchor, simplifyLine, stitchLines, subPixel, SubdivisionCache } from '../src/tiles/buildTile';
 import { latToTileY, lonToTileX, tileBounds } from '../src/tiles/tileMath';
 import { nodeSource } from './helpers/nodeSource';
@@ -223,12 +227,12 @@ describe('SubdivisionCache', () => {
 
 function decode(data: Uint8Array) {
   const vt = new VectorTile(new PbfReader(data));
-  const out: Array<{ layer: string; name?: string; t: number; geom: Array<Array<{ x: number; y: number }>> }> = [];
+  const out: Array<{ layer: string; type: number; name?: string; t: number; geom: Array<Array<{ x: number; y: number }>> }> = [];
   for (const layer of Object.keys(vt.layers)) {
     const l = vt.layers[layer];
     for (let i = 0; i < l.length; i++) {
       const f = l.feature(i);
-      out.push({ layer, name: f.properties.name as string | undefined, t: f.properties.t as number, geom: f.loadGeometry() });
+      out.push({ layer, type: f.type, name: f.properties.name as string | undefined, t: f.properties.t as number, geom: f.loadGeometry() });
     }
   }
   return out;
@@ -263,7 +267,7 @@ describe.skipIf(!hasRealData)('buildTile on real data', () => {
     const fRoads = async (z: number) => {
       const [x, y] = [lonToTileX(-19.0, z), latToTileY(64.05, z)];
       const feats = decode((await buildTile(map, new SubdivisionCache(), z, x, y)).data);
-      return feats.filter((f) => f.layer === 'lines' && /^F\d+/.test(f.name ?? '')).length;
+      return feats.filter((f) => isLineLayer(f.layer) && f.layer !== 'line-names' && /^F\d+/.test(f.name ?? '')).length;
     };
     expect(await fRoads(8)).toBeGreaterThan(0);
     expect(await fRoads(7)).toBeGreaterThan(0);
@@ -279,7 +283,7 @@ describe.skipIf(!hasRealData)('buildTile on real data', () => {
       for (let x = cx - 1; x <= cx + 1; x++) {
         for (let y = cy - 1; y <= cy + 1; y++) {
           for (const f of decode((await buildTile(map, cache, z, x, y)).data)) {
-            if (f.layer !== 'polygons' || !f.name || f.geom[0].length !== 1 || /^\d/.test(f.name)) continue;
+            if (f.layer !== 'area-labels' || !f.name || f.geom[0].length !== 1 || /^\d/.test(f.name)) continue;
             const p = f.geom[0][0];
             labels.push({ name: f.name, x: x * 4096 + p.x, y: y * 4096 + p.y, tile: `${x},${y}` });
           }
@@ -291,6 +295,50 @@ describe.skipIf(!hasRealData)('buildTile on real data', () => {
       expect(close).toEqual([]);
     }
   }, 120_000);
+
+  test('each line and area type has a source layer of its own, labels and contours apart', async () => {
+    const z = 12;
+    const typ = map.typ ? parseTyp(map.typ) : emptyTyp();
+    const styled = styledLineTypes(typ);
+    const { style } = buildStyle(typ, { tiles: '', glyphs: '' });
+    // Reykjavík (streets, areas, area labels) and Landmannalaugar (contours).
+    for (const [lon, lat] of [[-21.94, 64.146], [-19.06, 63.99]]) {
+      const feats = decode((await buildTile(map, new SubdivisionCache(), z, lonToTileX(lon, z), latToTileY(lat, z))).data);
+      const layers = new Set(feats.map((f) => f.layer));
+      const named = new Map<string, number>();
+      for (const f of feats) {
+        if (/^l\d+$/.test(f.layer)) {
+          expect(f.layer).toBe(`l${f.t}`);
+          expect(styled.has(f.t) && !CONTOUR_LINE_TYPES.has(f.t)).toBe(true);
+        } else if (f.layer === 'l-other') expect(styled.has(f.t)).toBe(false);
+        else if (f.layer === 'contours') expect(CONTOUR_LINE_TYPES.has(f.t)).toBe(true);
+        else if (/^p\d+$/.test(f.layer)) {
+          expect(f.layer).toBe(`p${f.t}`);
+          expect(f.type).toBe(3);
+        } else if (f.layer === 'area-labels') {
+          expect(f.type).toBe(1);
+          expect(f.name).toBeTruthy();
+        } else if (f.layer !== 'line-names') expect(f.layer).toBe('points');
+        if (f.name && isLineLayer(f.layer) && !['line-names', 'contours'].includes(f.layer)) {
+          const k = `${f.name}|${JSON.stringify(f.geom)}`;
+          named.set(k, (named.get(k) ?? 0) + 1);
+        }
+      }
+      // The label copy: the same named lines, with the same geometry.
+      const copy = feats.filter((f) => f.layer === 'line-names');
+      expect(copy.length).toBeGreaterThan(0);
+      for (const f of copy) {
+        const k = `${f.name}|${JSON.stringify(f.geom)}`;
+        expect(named.get(k)).toBeGreaterThan(0);
+        named.set(k, named.get(k)! - 1);
+      }
+      expect([...named.values()].every((n) => n === 0)).toBe(true);
+      // Every layer of the tiles that has a style layer is one the style draws from.
+      const drawnFrom = new Set(style.layers.map((l) => (l as { 'source-layer'?: string })['source-layer']));
+      for (const name of layers) if (name !== 'l-other' && !/^[lp]\d+$/.test(name)) expect(drawnFrom.has(name)).toBe(true);
+      expect(layers.has(lon < -20 ? 'area-labels' : 'contours')).toBe(true);
+    }
+  });
 
   test('a tile far out at sea is empty', async () => {
     const z = 10;

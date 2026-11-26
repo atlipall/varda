@@ -5,6 +5,7 @@ import { shiftOf, subdivisionBounds, type Subdivision } from '../img/tre';
 import { objectName, type GarminMap, type MapTile } from '../map/garminMap';
 import { CONTOUR_LINE_TYPES, isRoadType } from '../map/zoom';
 import { isFRoadName } from '../routing/roadClass';
+import { AREA_LABELS, areaLayer, CONTOURS, LINE_NAMES, lineLayer, OTHER_LINES, POINTS, styledLineTypesOf } from '../style/sourceLayers';
 import { tileBounds } from './tileMath';
 
 export const EXTENT = 4096;
@@ -346,6 +347,26 @@ export function dedupeLabels(
   }
 }
 
+/**
+ * The tile's features by source layer (see style/sourceLayers.ts): a layer per line and area type
+ * (lines of types `styled` hasn't, together), contours together, and the area labels and a copy of
+ * the named lines for the label layers. Each layer keeps its features in the order they came, so
+ * draw order and label placement stay as they were with one layer per kind.
+ */
+function sourceLayers(layers: Record<'points' | 'lines' | 'polygons', TileFeature[]>, styled: ReadonlySet<number>) {
+  const out: Record<string, { features: TileFeature[] }> = {};
+  const add = (name: string, f: TileFeature) => (out[name] ??= { features: [] }).features.push(f);
+  for (const f of layers.points) add(POINTS, f);
+  for (const f of layers.lines) {
+    const t = f.tags.t as number;
+    const contour = CONTOUR_LINE_TYPES.has(t);
+    add(contour ? CONTOURS : styled.has(t) ? lineLayer(t) : OTHER_LINES, f);
+    if (!contour && f.tags.name !== undefined) add(LINE_NAMES, { ...f, tags: { name: f.tags.name } });
+  }
+  for (const f of layers.polygons) add(f.type === 1 ? AREA_LABELS : areaLayer(f.tags.t as number), f);
+  return out;
+}
+
 export async function buildTile(
   map: GarminMap, cache: SubdivisionCache, z: number, x: number, y: number,
 ): Promise<{ data: Uint8Array; badSections: number; features: number }> {
@@ -477,9 +498,6 @@ export async function buildTile(
   dedupeLabels(layers.polygons, (f) => labelInfo.get(f), labelContext);
   // Labels another tile shows (their name dropped) needn't be sent at all.
   layers.polygons = layers.polygons.filter((f) => f.type !== 1 || f.tags.name !== undefined);
-  const data = fromGeojsonVt(
-    { points: { features: layers.points }, lines: { features: layers.lines }, polygons: { features: layers.polygons } } as never,
-    { version: 2, extent: EXTENT },
-  );
+  const data = fromGeojsonVt(sourceLayers(layers, styledLineTypesOf(map.typ)) as never, { version: 2, extent: EXTENT });
   return { data, badSections, features: layers.points.length + layers.lines.length + layers.polygons.length };
 }
