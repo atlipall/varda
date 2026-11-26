@@ -158,13 +158,20 @@ export class GraphBuilder {
   edge(a: number, b: number, metres: number, kmh: number, flags: number, shape: number[] | null = null, road: { tile: number; net: number } | null = null, rank = TOP_RANK): void {
     if (a === b) return;
     if (shape) this.geom.set(this.from.length, shape);
+    this.roadEdge(a, b, metres, kmh, flags, road?.tile ?? 0, road?.net ?? -1, rank);
+  }
+
+  /** Adds a directed edge along road (tile, net) with no shape: `edge` without the objects, for
+   *  the millions of a big map. */
+  roadEdge(a: number, b: number, metres: number, kmh: number, flags: number, tile: number, net: number, rank: number): void {
+    if (a === b) return;
     this.from.push(a);
     this.to.push(b);
     this.len.push(metres);
     this.speed.push(kmh);
     this.flags.push(flags);
-    this.tile.push(road?.tile ?? 0);
-    this.net.push(road?.net ?? -1);
+    this.tile.push(tile);
+    this.net.push(net);
     this.rank.push(rank);
   }
 
