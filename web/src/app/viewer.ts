@@ -358,6 +358,8 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     // one shown comes back; if even that fails, the app starts again.
     gen += 1;
     prev.pool.dispose();
+    // Another map's places too (its worker may be reading the whole map), before the next opens.
+    if (prev.stored.id !== id) dropPlaces();
     let next: MapSource;
     try {
       next = await openSource(stored, gen, glyphsUrl());
@@ -462,9 +464,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     near = null;
     app.placesReady = false;
     app.search = () => null;
-    const input = $<HTMLInputElement>('search');
-    input.placeholder = 'Loading places…';
-    input.disabled = !searchWired;
+    $<HTMLInputElement>('search').disabled = !searchWired;
   };
   /** Loads the places of `s`'s map, unless they are loaded or loading already. */
   const startPlaces = (s: MapSource) => {
@@ -484,6 +484,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     const client = new PlacesClient();
     placesWorker = { client, map: s.stored.id };
     const input = $<HTMLInputElement>('search');
+    input.placeholder = 'Loading places…';
     void client.load(s.stored.id, cacheKey(s.stored.meta), s.stored.img)
       .then((loaded) => {
         if (closed || placesWorker?.client !== client) return;
@@ -796,7 +797,7 @@ function wireSearch(
     const n = ++asked;
     const from = searchFrom();
     const hits = await index.search(input.value, 100, from.at).catch((err) => {
-      console.warn('search', err);
+      if (indexNow() === index) console.warn('search', err); // not when its map was put away
       return null;
     });
     if (n !== asked || !hits || indexNow() !== index) return;

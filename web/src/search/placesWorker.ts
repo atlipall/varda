@@ -2,7 +2,7 @@
 import { storageRoot } from '../channel';
 import { BlobSource } from '../img/source';
 import { GarminMap } from '../map/garminMap';
-import { OLD_PLACES, PLACES } from '../storage/layout';
+import { OLD_PLACES, PLACES, readFile, readTextFile, writeAll } from '../storage/layout';
 import { collectIndex } from './places';
 import { decodePlacesCache } from './placesCache';
 import { columnsFromPlaces, decodeColumns, encodeColumns, PlaceStore, type PlaceColumns } from './placeStore';
@@ -17,36 +17,16 @@ declare const self: DedicatedWorkerGlobalScope;
  */
 let store: PlaceStore | null = null;
 
-async function fileIn(dir: FileSystemDirectoryHandle, name: string): Promise<File | null> {
-  try {
-    return await (await dir.getFileHandle(name)).getFile();
-  } catch {
-    return null;
-  }
-}
-
-async function write(dir: FileSystemDirectoryHandle, name: string, bytes: Uint8Array): Promise<void> {
-  const handle = await (await dir.getFileHandle(name, { create: true })).createSyncAccessHandle();
-  try {
-    // Older Safari returns promises from these.
-    await handle.truncate(0);
-    await handle.write(bytes, { at: 0 });
-    await handle.flush();
-  } finally {
-    await handle.close();
-  }
-}
-
 async function load(dirName: string, key: string, img: File): Promise<{ store: PlaceStore; source: 'cache' | 'migrated' | 'built' }> {
   const dir = await (await storageRoot()).getDirectoryHandle(dirName);
-  const bin = await fileIn(dir, PLACES);
+  const bin = await readFile(dir, PLACES);
   const cached = bin ? decodeColumns(await bin.arrayBuffer(), key) : null;
   if (cached) return { store: new PlaceStore(cached), source: 'cache' };
   let cols: PlaceColumns | null = null;
   let source: 'migrated' | 'built' = 'built';
-  const old = await fileIn(dir, OLD_PLACES);
+  const old = await readTextFile(dir, OLD_PLACES);
   if (old) {
-    const decoded = decodePlacesCache(await old.text(), key);
+    const decoded = decodePlacesCache(old, key);
     if (decoded) {
       cols = columnsFromPlaces(decoded.places, decoded.roads);
       source = 'migrated';
@@ -60,8 +40,8 @@ async function load(dirName: string, key: string, img: File): Promise<{ store: P
   const bytes = encodeColumns(key, cols);
   cols = null;
   try {
-    await write(dir, PLACES, bytes);
-    if (old) await dir.removeEntry(OLD_PLACES);
+    await writeAll(dir, PLACES, bytes);
+    if (old !== null) await dir.removeEntry(OLD_PLACES);
   } catch (err) {
     // Only costs building it again next time; search works now.
     console.warn('places cache', err);
@@ -81,6 +61,7 @@ self.onmessage = async (e: MessageEvent) => {
       self.postMessage({
         type: 'loaded', id: msg.id, roads: store.cols.roads, towns: store.towns(), near, count: store.size, source: loaded.source, ms: performance.now() - t0,
       }, transfer);
+      store.cols.roads = {}; // the page keeps them
     } else if (msg.type === 'search') {
       if (!store) throw new Error('places not loaded');
       self.postMessage({ type: 'found', id: msg.id, places: store.search(msg.q as string, msg.limit as number, msg.near as [number, number] | undefined) });

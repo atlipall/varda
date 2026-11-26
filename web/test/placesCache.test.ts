@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import type { RoadClasses } from '../src/routing/roadClass';
 import type { Place } from '../src/search/places';
-import { decodePlacesCache, encodePlacesCache } from '../src/search/placesCache';
+import { decodePlacesCache } from '../src/search/placesCache';
+import { encodePlacesCache } from './helpers/placeIndex';
 
 const KEY = 'map-key';
 const PLACES: Place[] = [

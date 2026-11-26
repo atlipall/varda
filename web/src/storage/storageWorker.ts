@@ -6,7 +6,7 @@ import { BlobSource } from '../img/source';
 import { storageRoot } from '../channel';
 import { GarminMap } from '../map/garminMap';
 import { canonicalHgtName, defaultSetName, parseChoices, parseSetJson, type Choices, type SetJson } from './library';
-import { CHOICES, currentDirName, DIR_PREFIX, isCompleteDir, isMapDir, isMissing, isSetDir, listEntries, OLD_PLACES, parseMeta, PLACES, POINTER, readTextFile as readText, SET_PREFIX, setDir, subdir, type StoredMeta } from './layout';
+import { CHOICES, currentDirName, DIR_PREFIX, isCompleteDir, isMapDir, isMissing, isSetDir, listEntries, OLD_PLACES, parseMeta, PLACES, POINTER, writeAll, writeBytes, readTextFile as readText, SET_PREFIX, setDir, subdir, type StoredMeta } from './layout';
 import { firstEntry } from './unzipStream';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -18,21 +18,6 @@ const SPACE_MARGIN = 1.1;
 const progress = (message: string) => self.postMessage({ type: 'progress', message });
 const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
 const encode = (o: unknown) => new TextEncoder().encode(typeof o === 'string' ? o : JSON.stringify(o));
-
-// The sync access handle's methods return promises on older Safari (pre-17) and plain values on
-// newer engines; awaiting is harmless on the latter and required on the former.
-async function writeBytes(dir: FileSystemDirectoryHandle, name: string, write: (h: FileSystemSyncAccessHandle) => Promise<void>): Promise<void> {
-  const handle = await (await dir.getFileHandle(name, { create: true })).createSyncAccessHandle();
-  try {
-    await handle.truncate(0);
-    await write(handle);
-    await handle.flush();
-  } finally {
-    await handle.close();
-  }
-}
-
-const writeAll = (dir: FileSystemDirectoryHandle, name: string, bytes: Uint8Array) => writeBytes(dir, name, async (h) => void (await h.write(bytes, { at: 0 })));
 
 /** Overwrites a small file with one write and then trims it, so it is never observed empty (a
  *  pointer or set.json must not be left blank by an interruption between truncate and write). */

@@ -1,13 +1,10 @@
-import type { Kind } from '../img/rgn';
 import type { RoadClasses } from '../routing/roadClass';
-import { titleCase, type Town } from './describe';
+import { isTownCode, titleCase, type Town } from './describe';
 import { type NamedPoints, namedPointsOf } from './nearIndex';
 import { normalize } from './normalize';
-import { decodeRoadClasses } from './placesCache';
+import { decodeRoadClasses, KINDS } from './placesCache';
 import type { Place } from './places';
 
-/** Kind codes in the columns (the same as places.json's). */
-export const KINDS: Kind[] = ['point', 'line', 'polygon'];
 /** Static search order by kind: points, then areas, then lines. */
 const KIND_RANK = [0, 2, 1];
 const NEARBY_KM = 25;
@@ -36,7 +33,7 @@ export interface PlaceColumns {
   roads: RoadClasses;
 }
 
-const isTown = (kind: number, type: number) => kind === 0 && type >> 8 >= 0x01 && type >> 8 <= 0x0d;
+const isTown = (kind: number, type: number) => kind === 0 && isTownCode(type);
 
 /** Normalizes and sorts the places once (the expensive part, done when the cache is written). */
 export function columnsFromPlaces(places: Place[], roads: RoadClasses): PlaceColumns {
@@ -159,7 +156,14 @@ export function decodeColumns(buf: ArrayBuffer, key: string): PlaceColumns | nul
     const roads = decodeRoadClasses(meta.roads);
     const whats = meta.whats;
     if (!roads || !Array.isArray(whats) || !whats.every((w) => typeof w === 'string')) return null;
-    if (nameOff[n] !== names.byteLength) return null;
+    // The contents, cheaply: a file that adds up but holds nonsense is built again.
+    if (nameOff[0] !== 0 || nameOff[n] !== names.byteLength) return null;
+    for (let i = 0; i < n; i++) {
+      if (kind[i] >= KINDS.length || what[i] > whats.length || order[i] >= n || nameOff[i + 1] < nameOff[i]) return null;
+    }
+    let lines = 0;
+    for (let i = 0; i < norm.length; i++) if (norm[i] === 10) lines++;
+    if (n > 0 && lines !== n - 1) return null;
     return { lon, lat, type, kind, what, nameOff, names, order, norm, whats: whats as string[], roads };
   } catch {
     return null;

@@ -1,10 +1,10 @@
-import { distanceKm, titleCase } from './describe';
+import { distanceKm, EARTH_KM, titleCase } from './describe';
 
 /** Grid cells of 0.05° latitude by 0.1° longitude, in 1e-5 degrees. */
 const CELL_LAT = 5000;
 const CELL_LON = 10000;
 const cellKey = (latCell: number, lonCell: number) => (latCell + 2000) * 4000 + lonCell + 2000;
-const KM_PER_DEG = (6371 * Math.PI) / 180;
+const KM_PER_DEG = (EARTH_KM * Math.PI) / 180;
 const NUMBER_NAME = /^[\d\s.,-]+$/;
 
 /**
@@ -102,7 +102,7 @@ export class NearIndex {
     // latitudes whose cosine is at least `c`) within dLon of its longitude.
     const dLat = (km / KM_PER_DEG) * 1.001;
     const c = Math.cos((Math.min(90, Math.abs(at[1]) + dLat) * Math.PI) / 180);
-    const s = km / (2 * 6371 * c);
+    const s = km / (2 * EARTH_KM * c);
     const dLon = c > 1e-9 && s < 1 ? ((2 * Math.asin(s) * 180) / Math.PI) * 1.001 : 360;
     const lat0 = Math.floor(((at[1] - dLat) * 1e5) / CELL_LAT);
     const lat1 = Math.floor(((at[1] + dLat) * 1e5) / CELL_LAT);

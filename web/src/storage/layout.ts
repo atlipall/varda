@@ -111,6 +111,31 @@ export async function listEntries(dir: FileSystemDirectoryHandle): Promise<Array
   return out;
 }
 
+// The sync access handle's methods return promises on older Safari (pre-17) and plain values on
+// newer engines; awaiting is harmless on the latter and required on the former.
+export async function writeBytes(dir: FileSystemDirectoryHandle, name: string, write: (h: FileSystemSyncAccessHandle) => Promise<void>): Promise<void> {
+  const handle = await (await dir.getFileHandle(name, { create: true })).createSyncAccessHandle();
+  try {
+    await handle.truncate(0);
+    await write(handle);
+    await handle.flush();
+  } finally {
+    await handle.close();
+  }
+}
+
+export const writeAll = (dir: FileSystemDirectoryHandle, name: string, bytes: Uint8Array) => writeBytes(dir, name, async (h) => void (await h.write(bytes, { at: 0 })));
+
+/** A file, or null when it isn't there. */
+export async function readFile(dir: FileSystemDirectoryHandle, name: string): Promise<File | null> {
+  try {
+    return await (await dir.getFileHandle(name)).getFile();
+  } catch (err) {
+    if (isMissing(err)) return null;
+    throw err;
+  }
+}
+
 /** A small file's text, or null when it isn't there. */
 export async function readTextFile(dir: FileSystemDirectoryHandle, name: string): Promise<string | null> {
   try {

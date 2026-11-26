@@ -110,16 +110,6 @@ export async function loadMap(lib: Library, id: string, set: SetInfo | null): Pr
   return { id, meta, img, hgt, overview, set: hgt.length ? set : null };
 }
 
-/** Reads a small text file from a map's directory (null when it isn't there). */
-export async function readText(dir: string, name: string): Promise<string | null> {
-  try {
-    return await readTextFile(await (await storageRoot()).getDirectoryHandle(dir), name);
-  } catch (err) {
-    if (isMissing(err)) return null;
-    throw err;
-  }
-}
-
 function runWorker<T = void>(msg: Record<string, unknown>, onProgress?: (m: string) => void): Promise<T> {
   const w = new Worker(new URL('./storageWorker.ts', import.meta.url), { type: 'module' });
   return new Promise<T>((resolve, reject) => {
@@ -174,9 +164,6 @@ export function changeChoices(change: (c: Choices) => void): Promise<void> {
   return run;
 }
 let choicesQueue: Promise<void> = Promise.resolve();
-
-/** Writes a small text file into a map's directory; rejects when the map is gone. */
-export const writeText = (dir: string, name: string, text: string) => runWorker({ type: 'writeText', dir, name, text });
 
 /** Removes everything stored: the pointer first (so a partial removal reads as "no map"), then
  *  every map and elevation directory and the choices. Throws if anything could not be removed. */

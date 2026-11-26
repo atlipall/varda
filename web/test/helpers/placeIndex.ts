@@ -1,4 +1,6 @@
-import { isTownType, nearness } from '../../src/search/describe';
+import type { RoadClasses } from '../../src/routing/roadClass';
+import { distanceKm, isTownType, nearness, titleCase, type Town } from '../../src/search/describe';
+import { KINDS } from '../../src/search/placesCache';
 import { normalize } from '../../src/search/normalize';
 import type { Place } from '../../src/search/places';
 
@@ -78,3 +80,33 @@ export class OldPlaceIndex {
     return q.length >= 3 ? 2 : -1;
   }
 }
+
+/** The page's towns as they used to be found: every place scanned. */
+export const townsOf = (places: Place[]): Town[] =>
+  places.filter(isTownType).map((p) => ({ name: titleCase(p.name), lon: p.lon, lat: p.lat }));
+
+/** "Near X" for the nearest named point (a hut, a farm, a peak, a town) within `km` of `at`, for
+ *  naming a pin where no map feature is at hand. As it used to be, a scan of every place: the
+ *  reference NearIndex (nearIndex.ts) must match. */
+export function nearName(places: Place[], at: [number, number], km = 3): string | undefined {
+  let best: Place | null = null;
+  let bestKm = km;
+  for (const p of places) {
+    if (p.kind !== 'point' || /^[\d\s.,-]+$/.test(p.name)) continue;
+    const d = distanceKm(at, [p.lon, p.lat]);
+    if (d <= bestKm) [best, bestKm] = [p, d];
+  }
+  return best ? `Near ${titleCase(best.name.replace(/\s+\d+\s?m$/, ''))}` : undefined;
+}
+
+
+/** Compact on-disk form of a `Place` in older versions' places.json: [name, lon, lat, kindCode, type, what?]. */
+type PackedPlace = [string, number, number, number, number, string?];
+
+/** Encodes the on-disk `places.json` cache body: the map-file `key`, the places (packed), and the
+ *  F-road/track classes keyed by tile id and NET offset. */
+export function encodePlacesCache(key: string, places: Place[], roads: RoadClasses): string {
+  const packed: PackedPlace[] = places.map((p) => (p.what ? [p.name, p.lon, p.lat, KINDS.indexOf(p.kind), p.type, p.what] : [p.name, p.lon, p.lat, KINDS.indexOf(p.kind), p.type]));
+  return JSON.stringify({ key, v: 3, places: packed, roads });
+}
+

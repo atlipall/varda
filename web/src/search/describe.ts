@@ -40,8 +40,9 @@ const POLYGON: Record<number, string> = {
   0x46: 'River', 0x47: 'River', 0x48: 'River', 0x4d: 'Glacier',
 };
 
-/** Garmin city points: types 0x01-0x0d (by size). */
-export const isTownType = (p: Place) => p.kind === 'point' && (p.type >> 8) >= 0x01 && (p.type >> 8) <= 0x0d;
+/** Garmin city point types: 0x01-0x0d (by size). */
+export const isTownCode = (type: number) => type >> 8 >= 0x01 && type >> 8 <= 0x0d;
+export const isTownType = (p: Place) => p.kind === 'point' && isTownCode(p.type);
 
 export function placeCategory(p: Place): string {
   if (p.kind === 'point') {
@@ -64,31 +65,15 @@ export function titleCase(name: string): string {
 
 export interface Town { name: string; lon: number; lat: number }
 
-export const townsOf = (places: Place[]): Town[] =>
-  places.filter(isTownType).map((p) => ({ name: titleCase(p.name), lon: p.lon, lat: p.lat }));
-
-const R = 6371;
+/** The earth's mean radius, km. */
+export const EARTH_KM = 6371;
 const rad = (d: number) => (d * Math.PI) / 180;
 
 /** Great-circle distance in km. */
 export function distanceKm(a: [number, number], b: [number, number]): number {
   const [dLat, dLon] = [rad(b[1] - a[1]), rad(b[0] - a[0])];
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
-/** "Near X" for the nearest named point (a hut, a farm, a peak, a town) within `km` of `at`, for
- *  naming a pin where no map feature is at hand. A scan of every place: the app asks a NearIndex
- *  (nearIndex.ts), which gives the same answer. */
-export function nearName(places: Place[], at: [number, number], km = 3): string | undefined {
-  let best: Place | null = null;
-  let bestKm = km;
-  for (const p of places) {
-    if (p.kind !== 'point' || /^[\d\s.,-]+$/.test(p.name)) continue;
-    const d = distanceKm(at, [p.lon, p.lat]);
-    if (d <= bestKm) [best, bestKm] = [p, d];
-  }
-  return best ? `Near ${titleCase(best.name.replace(/\s+\d+\s?m$/, ''))}` : undefined;
+  return 2 * EARTH_KM * Math.asin(Math.sqrt(h));
 }
 
 /** Initial bearing from a to b, degrees clockwise from north. */

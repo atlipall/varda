@@ -2,14 +2,13 @@ import { existsSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { GarminMap } from '../src/map/garminMap';
 import type { RoadClasses } from '../src/routing/roadClass';
-import { nearName, townsOf } from '../src/search/describe';
 import { NearIndex } from '../src/search/nearIndex';
 import { normalize } from '../src/search/normalize';
 import { columnsFromPlaces, decodeColumns, encodeColumns, PlaceStore } from '../src/search/placeStore';
 import { bboxCenter, collectIndex, type Place } from '../src/search/places';
 import { nodeSource } from './helpers/nodeSource';
 import { DETAILED, hasRealData, REPO } from './helpers/paths';
-import { OldPlaceIndex } from './helpers/placeIndex';
+import { nearName, OldPlaceIndex, townsOf } from './helpers/placeIndex';
 
 const storeOf = (places: Place[], roads: RoadClasses = {}) => new PlaceStore(columnsFromPlaces(places, roads));
 

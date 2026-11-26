@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { collapseNearby, compass, describePlace, nearName, placeCategory, titleCase, townsOf } from '../src/search/describe';
+import { collapseNearby, compass, describePlace, placeCategory, titleCase } from '../src/search/describe';
+import { nearName, townsOf } from './helpers/placeIndex';
 import { NearIndex } from '../src/search/nearIndex';
 import { columnsFromPlaces, PlaceStore } from '../src/search/placeStore';
 import type { Place } from '../src/search/places';
