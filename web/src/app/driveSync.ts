@@ -5,6 +5,8 @@ import { deleteSyncFile, DriveError, readSyncFile, writeSyncFile } from '../sync
 import { finishSignIn, freshToken, GOOGLE_CLIENT_ID, prepareSignIn, setSyncState, signedIn, signIn, signOut, startSignIn, syncState, validToken } from '../sync/google';
 import { AUTH_HELPER, HelperError, helperReachable } from '../sync/helper';
 import { applyPlan } from '../sync/apply';
+import { DOUBLE_WRITE, fillTracks, indexCurrent, withoutPoints, writeTrackFiles } from '../sync/trackFiles';
+import type { Backup } from '../saved/backup';
 import { planSync } from '../sync/merge';
 import { preview, THUMB } from '../photos/copy';
 import { filesHere, getFiles, listPhotos, putFiles } from '../photos/photo';
@@ -139,7 +141,9 @@ export class DriveSync {
       const start = syncState();
       const localChange = start.changedAt;
       const dirty = localChange !== undefined && localChange !== start.syncedAt;
-      const file = await readSyncFile(token, dirty ? null : start.version ?? null);
+      const tracksHere = await listTracks();
+      const byId = new Map(tracksHere.map((t) => [t.id, t]));
+      const file = await readSyncFile(token, dirty ? null : start.version ?? null, (raw) => fillTracks(token, raw, (i) => byId.get(i)));
       if (file.unchanged) {
         // The pictures too, unless every one was already in place when the file had this version.
         if (this.photosOn && syncState().picturesAt !== start.version && (await this.syncPictures(token))) setSyncState({ ...syncState(), picturesAt: start.version });
@@ -147,7 +151,7 @@ export class DriveSync {
         return this.render();
       }
       const photosOn = this.photosOn;
-      const plan = planSync({ saved: await listSaved(), tracks: await listTracks(), deleted: deletions(), photos: photosOn ? await listPhotos() : null }, file.data);
+      const plan = planSync({ saved: await listSaved(), tracks: tracksHere, deleted: deletions(), photos: photosOn ? await listPhotos() : null }, file.data);
       // In one transaction; something edited or deleted here while this sync ran wins over what it brings in.
       const kept = await applyPlan(plan, deletions());
       // Deletions made here meanwhile are kept: merge, don't overwrite.
@@ -155,7 +159,14 @@ export class DriveSync {
       for (const [id, at] of Object.entries(plan.deleted)) gone[id] = Math.max(at, gone[id] ?? 0);
       setDeletions(gone);
       let { id, version } = file;
-      if (plan.upload) ({ id, version } = await writeSyncFile(token, id, plan.upload));
+      // Also written when only the track files' index is out of date (the file came from an older
+      // version of the app, which leaves the index out).
+      const upload = plan.upload ?? (file.data && !indexCurrent(file.data.tracks, file.data.trackFiles) ? { ...file.data, exported: new Date().toISOString() } : null);
+      if (upload) {
+        upload.trackFiles = await writeTrackFiles(token, upload.tracks, file.data?.trackFiles);
+        const body = DOUBLE_WRITE ? upload : ({ ...upload, tracks: upload.tracks.map(withoutPoints) } as unknown as Backup);
+        ({ id, version } = await writeSyncFile(token, id, body));
+      }
       for (const extra of file.extra) await deleteSyncFile(token, extra).catch(() => {});
       if (plan.putPhotos.length > kept.photos || plan.removePhotos.length) await this.photos?.reload();
       const pictures = photosOn && (await this.syncPictures(token));

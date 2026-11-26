@@ -1332,7 +1332,7 @@ try {
   // and the helper answered here; signing in starts as the return from Google's page, with a code).
   // Needs a build with VITE_GOOGLE_CLIENT_ID set.
   if (await page.$eval('#sync', (e) => e.hidden)) fail('no Google Drive sync section (build with VITE_GOOGLE_CLIENT_ID=e2e)');
-  const fakeDrive = { file: null, status: 200, photos: new Map(), deletedPhotos: [] };
+  const fakeDrive = { file: null, status: 200, photos: new Map(), deletedPhotos: [], tracks: new Map() };
   const remotePin = { id: 'remote-1', kind: 'pin', name: 'Remote hut', added: 1, lon: -19.3, lat: 64.2 };
   const remoteTrack = { id: 'remote-t', name: 'Remote track', color: '#0891b2', visible: true, added: 2, stats: { distance: 1200, climb: 30, duration: null }, gpx: { name: 'Remote track', lines: [{ kind: 'track', name: 'Remote track', points: [{ lon: -19.1, lat: 63.99, ele: 600, time: null }, { lon: -19.09, lat: 64.0, ele: 630, time: null }] }], waypoints: [] } };
   fakeDrive.file = JSON.stringify({ app: 'garmin-map', kind: 'backup', version: 1, exported: new Date().toISOString(), saved: [remotePin], tracks: [remoteTrack], deleted: {} });
@@ -1355,6 +1355,23 @@ try {
     if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: cors });
     if (fakeDrive.status !== 200) return req.respond({ status: fakeDrive.status, headers: cors, body: '' });
     const json = (o) => req.respond({ status: 200, headers: cors, contentType: 'application/json', body: JSON.stringify(o) });
+    // Tracks' points: files of their own (t-…), listed by name with their points key.
+    if (req.method() === 'GET' && url.pathname === '/drive/v3/files' && (url.searchParams.get('q') ?? '').includes('garmin-map-track-')) return json({ files: [...fakeDrive.tracks].map(([id, f]) => ({ id, name: f.name, appProperties: { points: f.points } })) });
+    const trackId = url.pathname.match(/\/files\/(t-[\w-]+)$/)?.[1];
+    const trackUpload = req.method() === 'POST' && url.pathname === '/upload/drive/v3/files' && (req.postData() ?? '').includes('"name":"garmin-map-track-');
+    if (trackId || trackUpload) {
+      if (req.method() === 'DELETE') {
+        fakeDrive.tracks.delete(trackId);
+        return req.respond({ status: 204, headers: cors, body: '' });
+      }
+      if (req.method() === 'GET') return fakeDrive.tracks.has(trackId) ? req.respond({ status: 200, headers: cors, contentType: 'application/json', body: fakeDrive.tracks.get(trackId).body }) : req.respond({ status: 404, headers: cors, body: '' });
+      const [meta, body] = req.postData().split(/--garmin-map-[a-z0-9]+/).filter((p) => p.includes('\r\n\r\n')).map((p) => p.slice(p.indexOf('\r\n\r\n') + 4).trim());
+      const m = JSON.parse(meta);
+      const id = trackId ?? `t-${fakeDrive.tracks.size + 1}-${Date.now()}`;
+      if (trackId && !fakeDrive.tracks.has(trackId)) return req.respond({ status: 404, headers: cors, body: '' });
+      fakeDrive.tracks.set(id, { name: m.name ?? fakeDrive.tracks.get(id).name, points: m.appProperties.points, body });
+      return json({ id });
+    }
     // Photo pictures: files of their own, listed by name.
     if (req.method() === 'GET' && url.pathname === '/drive/v3/files' && (url.searchParams.get('q') ?? '').includes('garmin-map-photo-')) return json({ files: [...fakeDrive.photos].map(([name, f]) => ({ id: f.id, name })) });
     const photoId = url.pathname.match(/^\/drive\/v3\/files\/(p-[\w-]+)$/)?.[1];
@@ -1426,6 +1443,21 @@ try {
   const trackSync = await page.evaluate(() => ({ count: window.__app.tracks.count, names: [...document.querySelectorAll('#track-list .name')].map((e) => e.textContent), drawn: window.__app.map.getStyle().sources.gpx.data.features.length }));
   if (trackSync.count !== tracksBefore + 1 || !trackSync.names.includes('Remote track') || !trackSync.drawn) fail(`track from another device: ${JSON.stringify(trackSync)} (had ${tracksBefore})`);
   if (sync.count !== 3 || !sync.names.includes('Remote hut') || !/^Synced with Google Drive at \d\d:\d\d\. You stay signed in on this device\.$/.test(sync.text) || remote().saved.length !== 3 || remote().tracks.length !== tracksBefore + 1) fail(`first sync: ${JSON.stringify(sync)} drive has ${remote().saved.length} saved, ${remote().tracks.length} tracks`);
+  // Each track's points went up as a file of its own, named in the sync file's index; the sync
+  // file still carries the points too, for older versions of the app.
+  const index = remote().trackFiles ?? {};
+  if (fakeDrive.tracks.size !== tracksBefore + 1 || remote().tracks.some((t) => !index[t.id] || !fakeDrive.tracks.has(index[t.id].file) || !t.gpx)) fail(`track files: ${fakeDrive.tracks.size} files, index ${JSON.stringify(index)}`);
+  // A track from a device that writes the points only to its file: it comes down with them.
+  const lightTrack = { id: 'light-t', name: 'Light track', color: '#0891b2', visible: true, added: 3, stats: { distance: 900, climb: null, duration: null } };
+  const lightPoints = { name: 'Light track', lines: [{ kind: 'track', name: 'Light track', points: [{ lon: -19.2, lat: 64.05, ele: null, time: null }, { lon: -19.19, lat: 64.06, ele: null, time: null }] }], waypoints: [] };
+  fakeDrive.tracks.set('t-light', { name: 'garmin-map-track-light-t.json', points: 'other-device', body: JSON.stringify({ app: 'garmin-map', kind: 'track-points', version: 1, id: 'light-t', gpx: lightPoints }) });
+  const withLight = remote();
+  withLight.tracks.push(lightTrack);
+  withLight.trackFiles = { ...withLight.trackFiles, 'light-t': { file: 't-light', points: 'other-device', at: 3 } };
+  fakeDrive.file = JSON.stringify(withLight);
+  await page.evaluate(() => window.__app.sync.syncNow());
+  await page.waitForFunction(() => window.__app.tracks.all.some((t) => t.id === 'light-t' && t.gpx.lines[0].points.length === 2), { timeout: 10_000 }).catch(() => fail('a track whose points are only in its file did not come'));
+  if (!remote().tracks.some((t) => t.id === 'light-t' && t.gpx)) fail('the light track was not written back with its points for older versions');
   // A deletion here reaches Drive (a few seconds after the change).
   const hutRow = await page.$$eval('#saved-list li', (lis) => lis.findIndex((li) => li.querySelector('.name').textContent === 'Remote hut') + 1);
   await page.click(`#saved-list li:nth-child(${hutRow}) .track-delete`);
@@ -1524,13 +1556,16 @@ try {
   if (await page.$eval('#sync-connect', (e) => e.textContent) !== 'Sync with Google Drive') fail('Stop syncing did not turn sync off');
   page.off('request', onRequest);
   await page.setRequestInterception(false);
-  // Leave the device as before the sync: delete the track that came from "another device".
+  // Leave the device as before the sync: delete the tracks that came from "another device".
   if (await page.$eval('#saved', (e) => !e.hidden)) await page.click('#saved-close');
   await page.click('#menu-button');
   await page.click('#tracks-open');
-  const remoteRow = await page.$$eval('#track-list li', (lis) => lis.findIndex((li) => li.querySelector('.name').textContent === 'Remote track') + 1);
-  await page.click(`#track-list li:nth-child(${remoteRow}) .track-delete`);
-  await page.click(`#track-list li:nth-child(${remoteRow}) .track-delete`);
+  for (const name of ['Remote track', 'Light track']) {
+    const remoteRow = await page.$$eval('#track-list li', (lis, n) => lis.findIndex((li) => li.querySelector('.name').textContent === n) + 1, name);
+    await page.click(`#track-list li:nth-child(${remoteRow}) .track-delete`);
+    await page.click(`#track-list li:nth-child(${remoteRow}) .track-delete`);
+    await page.waitForFunction((n) => ![...document.querySelectorAll('#track-list .name')].some((e) => e.textContent === n), { timeout: 5_000 }, name);
+  }
   await page.waitForFunction((n) => window.__app.tracks.count === n, { timeout: 5_000 }, tracksBefore);
   await page.click('#tracks-close');
   console.log('drive sync ok');
