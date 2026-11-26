@@ -1,4 +1,4 @@
-import { coordsBounds, polygonLabelAnchor } from '../tiles/buildTile';
+import { coordsBounds, polygonLabelAnchor, simplifyLine } from '../tiles/buildTile';
 import { child, childText, parseXml, type El } from './xml';
 import { unzip } from './zip';
 
@@ -41,6 +41,13 @@ export interface OverlayLegend {
   field: string;
   items: Array<{ value: string; color: string }>;
 }
+
+/** More points than this and an overlay is too much for a phone to hold and draw (Óbyggðanefnd's
+ *  þjóðlendur have 228,000; Fjarskiptastofa's 4G coverage 1.2 million, about 60 MB once read). */
+export const MAX_POINTS = 600_000;
+export const tooDetailed = () => new Error(`It’s too detailed for the app: over ${MAX_POINTS.toLocaleString('en')} points.`);
+/** Line and outline points closer than about a metre (in degrees) to the shape are dropped. */
+export const SIMPLIFY_DEGREES = 1e-5;
 
 const DEFAULT_COLOR = '#c2410c';
 /** Fills stay see-through enough to read the map under them (GPSmap.is's parking zones are 60%). */
@@ -93,53 +100,72 @@ function walk(e: El, visit: (e: El) => void): void {
   for (const c of e.children) walk(c, visit);
 }
 
-function coordinates(e: El | undefined): Array<[number, number]> {
+/** Points read so far in a document (refused over `MAX_POINTS`). */
+interface Budget {
+  points: number;
+}
+
+const spend = (budget: Budget, n: number) => {
+  budget.points += n;
+  if (budget.points > MAX_POINTS) throw tooDetailed();
+};
+
+function coordinates(e: El | undefined, budget: Budget): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   for (const t of (e?.text ?? '').trim().split(/\s+/)) {
     const [lon, lat] = t.split(',').map(Number);
     if (Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90) out.push([lon, lat]);
   }
+  spend(budget, out.length);
   return out;
 }
 
-function ring(e: El | undefined): Array<[number, number]> | null {
+/** A line or ring without the points within about a metre of it (as Shapefiles are read), unless
+ *  that leaves fewer than `min`. */
+const simplified = (pts: Array<[number, number]>, min: number) => {
+  const s = simplifyLine(pts, SIMPLIFY_DEGREES);
+  return s.length >= min ? s : pts;
+};
+
+function ring(e: El | undefined, budget: Budget): Array<[number, number]> | null {
   const lr = e && child(e, 'linearring');
-  const pts = coordinates(lr && child(lr, 'coordinates'));
+  const pts = coordinates(lr && child(lr, 'coordinates'), budget);
   if (pts.length && (pts[0][0] !== pts[pts.length - 1][0] || pts[0][1] !== pts[pts.length - 1][1])) pts.push(pts[0]);
-  return pts.length >= 4 ? pts : null;
+  return pts.length >= 4 ? simplified(pts, 4) : null;
 }
 
 type Geometry = GeoJSON.Point | GeoJSON.LineString | GeoJSON.Polygon;
 
-function geometries(e: El, out: Geometry[]): void {
+function geometries(e: El, out: Geometry[], budget: Budget): void {
   switch (e.tag) {
     case 'point': {
-      const [p] = coordinates(child(e, 'coordinates'));
+      const [p] = coordinates(child(e, 'coordinates'), budget);
       if (p) out.push({ type: 'Point', coordinates: p });
       return;
     }
     case 'linestring':
     case 'linearring': {
-      const pts = coordinates(child(e, 'coordinates'));
-      if (pts.length >= 2) out.push({ type: 'LineString', coordinates: pts });
+      const pts = coordinates(child(e, 'coordinates'), budget);
+      if (pts.length >= 2) out.push({ type: 'LineString', coordinates: simplified(pts, 2) });
       return;
     }
     case 'track': {
       // gx:Track: "lon lat alt" in gx:coord elements.
       const pts = e.children.filter((c) => c.tag === 'coord').map((c) => c.text.trim().split(/\s+/).map(Number)).filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat)).map(([lon, lat]) => [lon, lat] as [number, number]);
-      if (pts.length >= 2) out.push({ type: 'LineString', coordinates: pts });
+      spend(budget, pts.length);
+      if (pts.length >= 2) out.push({ type: 'LineString', coordinates: simplified(pts, 2) });
       return;
     }
     case 'polygon': {
-      const outer = ring(child(e, 'outerboundaryis'));
+      const outer = ring(child(e, 'outerboundaryis'), budget);
       if (!outer) return;
-      const holes = e.children.filter((c) => c.tag === 'innerboundaryis').map(ring).filter((r) => r !== null);
+      const holes = e.children.filter((c) => c.tag === 'innerboundaryis').map((h) => ring(h, budget)).filter((r) => r !== null);
       out.push({ type: 'Polygon', coordinates: [outer, ...holes] });
       return;
     }
     case 'multigeometry':
     case 'multitrack':
-      for (const c of e.children) geometries(c, out);
+      for (const c of e.children) geometries(c, out, budget);
   }
 }
 
@@ -174,13 +200,14 @@ export function parseKml(xml: string, fallbackName: string): Overlay {
   const features: OverlayFeature[] = [];
   const counts = { points: 0, lines: 0, areas: 0 };
   const colorUse = new Map<string, number>();
+  const budget: Budget = { points: 0 };
   walk(kml, (pm) => {
     if (pm.tag !== 'placemark') return;
     const inline = child(pm, 'style');
     const st: Style = { ...resolve(childText(pm, 'styleurl')), ...(inline ? readStyle(inline) : {}) };
     const name = childText(pm, 'name') ?? '';
     const geoms: Geometry[] = [];
-    for (const c of pm.children) geometries(c, geoms);
+    for (const c of pm.children) geometries(c, geoms, budget);
     const fill = st.fill ?? st.line ?? DEFAULT_COLOR;
     const line = st.line ?? st.fill ?? DEFAULT_COLOR;
     const props: OverlayProps = {
@@ -230,17 +257,19 @@ export function parseKml(xml: string, fallbackName: string): Overlay {
   };
 }
 
+/** Reads a KMZ's files (already unzipped): its doc.kml, or else its first .kml. */
+export function readKmz(name: string, files: Map<string, Uint8Array>): Overlay {
+  const kmls = [...files.keys()].filter((n) => /\.kml$/i.test(n));
+  const main = kmls.find((n) => /(^|\/)doc\.kml$/i.test(n)) ?? kmls[0];
+  if (!main) throw new KmlError('There is no KML file inside this KMZ file.');
+  return parseKml(new TextDecoder().decode(files.get(main)), name);
+}
+
 /** Reads a picked .kml or .kmz (a zip with a .kml inside, usually doc.kml). */
 export async function readOverlayFile(name: string, bytes: Uint8Array): Promise<Overlay> {
   const base = name.split('/').pop()!.replace(/\.[^.]+$/, '');
   const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
-  if (isZip) {
-    const files = await unzip(bytes.slice().buffer);
-    const kmls = [...files.keys()].filter((n) => /\.kml$/i.test(n));
-    const main = kmls.find((n) => /(^|\/)doc\.kml$/i.test(n)) ?? kmls[0];
-    if (!main) throw new KmlError('There is no KML file inside this KMZ file.');
-    return parseKml(new TextDecoder().decode(files.get(main)), base);
-  }
+  if (isZip) return readKmz(base, await unzip(bytes.slice().buffer));
   const text = new TextDecoder().decode(bytes);
   if (!/<kml[\s>]/i.test(text.slice(0, 4096))) throw new KmlError('Pick a KML or KMZ file (from Google Earth or an overlays folder).');
   return parseKml(text, base);

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { overlaySummary } from '../src/app/overlayMap';
-import { KmlError, kmlColor, parseKml, readOverlayFile } from '../src/overlays/kml';
+import { KmlError, kmlColor, MAX_POINTS, parseKml, readOverlayFile } from '../src/overlays/kml';
 import { parseXml } from '../src/overlays/xml';
 import { REPO } from './helpers/paths';
 
@@ -113,6 +113,22 @@ describe('parseKml', () => {
   test('the file name is used when the document has none', () => {
     const o = parseKml('<kml><Placemark><Point><coordinates>1,2</coordinates></Point></Placemark></kml>', 'mine');
     expect(o.name).toBe('mine');
+  });
+});
+
+describe('parseKml: detail', () => {
+  test('drops line and outline points within about a metre, as Shapefiles are read', () => {
+    // A straight line with a point 0.1 m off it, and a square with a point on one side.
+    const o = parseKml(kml(`<Placemark><LineString><coordinates>-21,64 -20.99995,64.000001 -20.9999,64</coordinates></LineString></Placemark>
+      <Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 0.0005,0 0.001,0 0.001,0.001 0,0.001 0,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`), 'x');
+    expect(o.features[0].geometry).toEqual({ type: 'LineString', coordinates: [[-21, 64], [-20.9999, 64]] });
+    expect(o.features[1].geometry.coordinates).toEqual([[[0, 0], [0.001, 0], [0.001, 0.001], [0, 0.001], [0, 0]]]);
+    expect(o.counts).toEqual({ points: 0, lines: 1, areas: 1 });
+  });
+
+  test('a file too detailed for a phone is refused', () => {
+    const coords = Array.from({ length: MAX_POINTS + 1 }, (_, i) => `${(i % 1000) / 1000},${Math.floor(i / 1000) / 1000}`).join(' ');
+    expect(() => parseKml(kml(`<Placemark><LineString><coordinates>${coords}</coordinates></LineString></Placemark>`), 'x')).toThrow('too detailed');
   });
 });
 
