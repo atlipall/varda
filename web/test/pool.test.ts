@@ -168,7 +168,6 @@ describe('TilePool', () => {
     await expect(pool.open()).rejects.toThrow('pool disposed');
     await expect(pool.tile(0, 0, 0)).rejects.toThrow('pool disposed');
     await expect(pool.dem(0, 0, 0)).rejects.toThrow('pool disposed');
-    await expect(pool.places()).rejects.toThrow('pool disposed');
 
     // A second dispose() is a harmless no-op, not a re-termination or a fresh rejection storm.
     expect(() => pool.dispose()).not.toThrow();
@@ -183,28 +182,6 @@ describe('TilePool', () => {
     const rgba = new ArrayBuffer(4);
     w.reply({ type: 'dem', id: w.lastId(), rgba, ms: 2 });
     await expect(p).resolves.toEqual({ bitmap: undefined, rgba, ms: 2 });
-  });
-
-  test('places() calls the LAST live worker', async () => {
-    const pool = new TilePool(payload, 3);
-    const p = pool.places();
-    const [w0, w1, w2] = FakeWorker.instances;
-    expect(w0.posted).toHaveLength(0);
-    expect(w1.posted).toHaveLength(0);
-    expect(w2.posted).toHaveLength(1);
-    expect(w2.posted[0]).toMatchObject({ type: 'places' });
-
-    w2.reply({ type: 'places', id: w2.lastId(), places: [{ name: 'x', lon: 0, lat: 0, kind: 'point', type: 1 }], roads: {} });
-    await expect(p).resolves.toEqual({ places: [{ name: 'x', lon: 0, lat: 0, kind: 'point', type: 1 }], roads: {} });
-  });
-
-  test('places() resolves with the places and the road classes', async () => {
-    const pool = new TilePool(payload, 1);
-    const p = pool.places();
-    const w = FakeWorker.instances[0];
-    const msg = w.posted.find((m) => m.type === 'places');
-    w.reply({ type: 'places', id: msg.id, places: [], roads: { t: [[5, 1]] } });
-    expect(await p).toEqual({ places: [], roads: { t: [[5, 1]] } });
   });
 
   test('route() goes to the last worker and resolves with its reply', async () => {

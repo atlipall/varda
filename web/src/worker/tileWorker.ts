@@ -10,7 +10,6 @@ import { buildNetwork } from '../routing/network';
 import { planRoute } from '../routing/plan';
 import type { RoadClasses } from '../routing/roadClass';
 import { roadLineSource, routeShape } from '../routing/shape';
-import { collectIndex } from '../search/places';
 import { matchTrack } from '../tracks/match';
 import { buildTile, SubdivisionCache } from '../tiles/buildTile';
 
@@ -135,16 +134,6 @@ self.onmessage = async (e: MessageEvent) => {
       const dem = demReady ? await demReady : null;
       const metres = dem ? await dem.elevationAt(msg.lon, msg.lat) : null;
       self.postMessage({ type: 'elevation', id: msg.id, metres });
-    } else if (msg.type === 'places') {
-      if (!opened) throw new Error('map not opened');
-      if (cancelled.delete(msg.id)) return;
-      const m = await opened;
-      // collectIndex (and the decodeAll it's built on) has no way to abort mid-decode short of
-      // changing its signature, which is out of scope here — this only skips starting the work,
-      // or skips replying, for a request that's already been cancelled either side of it.
-      const { places, roads } = await collectIndex(m);
-      if (cancelled.delete(msg.id)) return;
-      self.postMessage({ type: 'places', id: msg.id, places, roads });
     } else if (msg.type === 'route') {
       if (!opened) throw new Error('map not opened');
       const m = await opened;
