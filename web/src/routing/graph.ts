@@ -28,8 +28,8 @@ export interface RoadGraph {
   edgeTo: Int32Array;
   /** Metres. */
   edgeLen: Float32Array;
-  /** km/h used for travel time. */
-  edgeSpeed: Float32Array;
+  /** km/h used for travel time, whole (1-255; Garmin speed classes are 5-128). */
+  edgeSpeed: Uint8Array;
   edgeFlags: Uint8Array;
   /** The edge's road: its map tile's index (0 when the edge has no road) and its NET offset
    *  (−1 when unknown). */
@@ -49,7 +49,8 @@ export interface RoadGraph {
 /**
  * Node ids by exact position: open addressing over the ids, positions read from `xs`/`ys`. Typed
  * arrays throughout, so a big map's millions of nodes (3.6 million on Freizeitkarte Denmark) cost
- * 4-8 bytes a slot instead of a Map entry each.
+ * 4-8 bytes a slot instead of a Map entry each. Up to three quarters full before it doubles
+ * (Denmark's 2.6 million graph nodes take 4.2 million slots, 17 MB, not 8.4 million).
  */
 export class XYTable {
   private slots: Int32Array;
@@ -59,7 +60,7 @@ export class XYTable {
   /** `xs`/`ys` are read through `.data`, so they may be replaced by grown copies. */
   constructor(private readonly xs: { data: Int32Array }, private readonly ys: { data: Int32Array }, capacity = 0) {
     let size = 16;
-    while (size < capacity * 2) size *= 2;
+    while (size * 3 < capacity * 4) size *= 2;
     this.slots = new Int32Array(size).fill(-1);
     this.mask = size - 1;
   }
@@ -90,7 +91,7 @@ export class XYTable {
     const i = this.slot(this.xs.data[id], this.ys.data[id]);
     if (this.slots[i] >= 0) return this.slots[i];
     this.slots[i] = id;
-    if (++this.count * 2 > this.slots.length) this.grow();
+    if (++this.count * 4 > this.slots.length * 3) this.grow();
     return id;
   }
 
@@ -137,7 +138,7 @@ export class GraphBuilder {
   private readonly from = new Column(new Int32Array(1024));
   private readonly to = new Column(new Int32Array(1024));
   private readonly len = new Column(new Float32Array(1024));
-  private readonly speed = new Column(new Float32Array(1024));
+  private readonly speed = new Column(new Uint8Array(1024));
   private readonly flags = new Column(new Uint8Array(1024));
   private readonly tile = new Column(new Uint16Array(1024));
   private readonly net = new Column(new Int32Array(1024));
@@ -154,17 +155,24 @@ export class GraphBuilder {
     return this.ids.add(id);
   }
 
-  /** Adds a directed edge; `shape` is the interior points as a flat [x, y, x, y, …] list. */
+  /** Adds a directed edge; `kmh` is whole (kept in a byte); `shape` is the interior points as a flat [x, y, x, y, …] list. */
   edge(a: number, b: number, metres: number, kmh: number, flags: number, shape: number[] | null = null, road: { tile: number; net: number } | null = null, rank = TOP_RANK): void {
     if (a === b) return;
     if (shape) this.geom.set(this.from.length, shape);
+    this.roadEdge(a, b, metres, kmh, flags, road?.tile ?? 0, road?.net ?? -1, rank);
+  }
+
+  /** Adds a directed edge along road (tile, net) with no shape: `edge` without the objects, for
+   *  the millions of a big map. */
+  roadEdge(a: number, b: number, metres: number, kmh: number, flags: number, tile: number, net: number, rank: number): void {
+    if (a === b) return;
     this.from.push(a);
     this.to.push(b);
     this.len.push(metres);
     this.speed.push(kmh);
     this.flags.push(flags);
-    this.tile.push(road?.tile ?? 0);
-    this.net.push(road?.net ?? -1);
+    this.tile.push(tile);
+    this.net.push(net);
     this.rank.push(rank);
   }
 
@@ -236,22 +244,29 @@ export interface Route {
   edges: number[];
 }
 
-/** Binary min-heap of (key, value) pairs. */
+/** Binary min-heap of (key, value) pairs, in typed arrays that grow and are kept between searches. */
 class Heap {
-  private keys: number[] = [];
-  private vals: number[] = [];
-  get size(): number {
-    return this.keys.length;
-  }
+  private keys = new Float64Array(1024);
+  private vals = new Int32Array(1024);
+  size = 0;
   get topKey(): number {
     return this.keys[0];
   }
+  clear(): void {
+    this.size = 0;
+  }
   push(k: number, v: number): void {
+    if (this.size === this.keys.length) {
+      const keys = new Float64Array(this.size * 2);
+      const vals = new Int32Array(this.size * 2);
+      keys.set(this.keys);
+      vals.set(this.vals);
+      this.keys = keys;
+      this.vals = vals;
+    }
     const keys = this.keys;
     const vals = this.vals;
-    let i = keys.length;
-    keys.push(k);
-    vals.push(v);
+    let i = this.size++;
     while (i > 0) {
       const p = (i - 1) >> 1;
       if (keys[p] <= k) break;
@@ -266,15 +281,16 @@ class Heap {
     const keys = this.keys;
     const vals = this.vals;
     const top = vals[0];
-    const k = keys.pop()!;
-    const v = vals.pop()!;
-    if (keys.length) {
+    const n = --this.size;
+    const k = keys[n];
+    const v = vals[n];
+    if (n) {
       let i = 0;
       for (;;) {
         const l = 2 * i + 1;
-        if (l >= keys.length) break;
+        if (l >= n) break;
         const r = l + 1;
-        const c = r < keys.length && keys[r] < keys[l] ? r : l;
+        const c = r < n && keys[r] < keys[l] ? r : l;
         if (keys[c] >= k) break;
         keys[i] = keys[c];
         vals[i] = vals[c];
@@ -285,6 +301,49 @@ class Heap {
     }
     return top;
   }
+}
+
+/** A search's per-node state, kept per graph so a route or reroute on a big map (2.6 million
+ *  nodes on Freizeitkarte Denmark) doesn't allocate and fill tens of MB each time. `stamp[v]`
+ *  tells which search last touched v: 2·gen once v has a cost in search `gen`, 2·gen + 1 once it's
+ *  settled; anything lower means untouched (no cost yet, no edge in), whatever best/via hold.
+ *  14 bytes a node, kept (36 MB on Denmark); the stamps are cleared once every 32,767 searches. */
+interface Scratch {
+  best: Float64Array;
+  via: Int32Array;
+  stamp: Uint16Array;
+  gen: number;
+  heap: Heap;
+}
+
+const scratches = new WeakMap<RoadGraph, Scratch>();
+
+/** The graph's search state, readied for a new search. */
+function scratchFor(g: RoadGraph): Scratch {
+  const n = g.nodeX.length;
+  let s = scratches.get(g);
+  if (!s) scratches.set(g, (s = { best: new Float64Array(n), via: new Int32Array(n), stamp: new Uint16Array(n), gen: 0, heap: new Heap() }));
+  if (++s.gen >= 0x8000) {
+    s.stamp.fill(0);
+    s.gen = 1;
+  }
+  s.heap.clear();
+  return s;
+}
+
+const RAD_PER_UNIT = Math.PI / 180 / UNITS_PER_DEG;
+
+/** At most metresBetween(x1, y1, x2, y2), given the cosines of the two latitudes: the chord
+ *  through the earth, 2R·√h, where the arc is 2R·asin √h, with sin x taken as x − x³/6 (less than
+ *  sin x for 0 ≤ x ≤ 1). A few hundredths of a percent short over a few hundred km, and it needs
+ *  one square root instead of four trigonometric functions. */
+function metresAtLeast(x1: number, y1: number, cos1: number, x2: number, y2: number, cos2: number): number {
+  const a = Math.abs(y2 - y1) * (RAD_PER_UNIT / 2);
+  const b = Math.abs(x2 - x1) * (RAD_PER_UNIT / 2);
+  if (a > 1 || b > 1) return metresBetween(x1, y1, x2, y2);
+  const sa = a * (1 - (a * a) / 6);
+  const sb = b * (1 - (b * b) / 6);
+  return 2 * EARTH_R * Math.sqrt(sa * sa + cos1 * cos2 * sb * sb);
 }
 
 /** A route end on the graph: a node plus the time (seconds) spent getting to it from the start
@@ -324,26 +383,41 @@ export function fastestRoute(g: RoadGraph, from: number | Terminal[], to: number
   const sources = terminals(from);
   const targets = terminals(to);
   if (!sources.length || !targets.length) return null;
-  const n = g.nodeX.length;
-  const best = new Float64Array(n).fill(Infinity);
-  const via = new Int32Array(n).fill(-1);
-  const done = new Uint8Array(n);
+  const { best, via, stamp, gen, heap } = scratchFor(g);
+  const reached = 2 * gen;
+  const settled = reached + 1;
   const extra = new Map<number, number>();
   for (const t of targets) extra.set(t.node, Math.min(t.cost, extra.get(t.node) ?? Infinity));
   // An F-road counted at fWeight is as if driven 1/fWeight times faster.
   // 1 % above top speed: NOD lengths (2.4 m units) run a little short of the straight-line distance,
   // and the estimate must never exceed the real cost.
   const maxMs = (g.maxSpeed * 1.01) / 3.6 / Math.min(1, fWeight);
-  // Admissible: the straight-line time at top speed to the nearest-in-total target.
+  // Admissible: at most the straight-line time at top speed to the nearest-in-total target (see
+  // metresAtLeast), with the targets' positions and cosines worked out once.
+  const tn = targets.length;
+  const tx = new Float64Array(tn);
+  const ty = new Float64Array(tn);
+  const tcos = new Float64Array(tn);
+  const tcost = new Float64Array(tn);
+  for (let k = 0; k < tn; k++) {
+    tx[k] = g.nodeX[targets[k].node];
+    ty[k] = g.nodeY[targets[k].node];
+    tcos[k] = Math.cos(ty[k] * RAD_PER_UNIT);
+    tcost[k] = targets[k].cost;
+  }
   const h = (v: number) => {
+    const x = g.nodeX[v];
+    const y = g.nodeY[v];
+    const cos = Math.cos(y * RAD_PER_UNIT);
     let m = Infinity;
-    for (const t of targets) m = Math.min(m, metresBetween(g.nodeX[v], g.nodeY[v], g.nodeX[t.node], g.nodeY[t.node]) / maxMs + t.cost);
+    for (let k = 0; k < tn; k++) m = Math.min(m, metresAtLeast(x, y, cos, tx[k], ty[k], tcos[k]) / maxMs + tcost[k]);
     return m;
   };
-  const heap = new Heap();
   for (const s of sources) {
-    if (s.cost < best[s.node]) {
+    if (s.cost < (stamp[s.node] < reached ? Infinity : best[s.node])) {
       best[s.node] = s.cost;
+      via[s.node] = -1;
+      stamp[s.node] = reached;
       heap.push(s.cost + h(s.node), s.node);
     }
   }
@@ -352,25 +426,27 @@ export function fastestRoute(g: RoadGraph, from: number | Terminal[], to: number
   while (heap.size) {
     if (heap.topKey >= bestTotal) break; // nothing left can beat the best found
     const u = heap.pop();
-    if (done[u]) continue;
-    done[u] = 1;
+    if (stamp[u] === settled) continue;
+    stamp[u] = settled;
     const x = extra.get(u);
     if (x !== undefined && best[u] + x < bestTotal) {
       bestTotal = best[u] + x;
       end = u;
     }
+    const into = via[u];
     for (let e = g.edgeStart[u]; e < g.edgeStart[u + 1]; e++) {
       if (!allowFRoads && g.edgeFlags[e] & EDGE_FROAD) continue;
       const v = g.edgeTo[e];
-      if (done[v]) continue;
+      const sv = stamp[v];
+      if (sv === settled) continue;
       const froad = g.edgeFlags[e] & EDGE_FROAD;
-      const into = via[u];
       // Onto another road (not just across a map tile boundary, where a road's NET record changes).
       const change = into >= 0 && g.edgeTile[into] === g.edgeTile[e] && g.edgeNet[into] !== g.edgeNet[e] ? pref.changeSeconds : 0;
       const t = best[u] + (g.edgeLen[e] / (g.edgeSpeed[e] / 3.6)) * (froad ? fWeight : pref.rankWeight[g.edgeRank[e]]) + change;
-      if (t < best[v]) {
+      if (t < (sv < reached ? Infinity : best[v])) {
         best[v] = t;
         via[v] = e;
+        stamp[v] = reached;
         heap.push(t + h(v), v);
       }
     }

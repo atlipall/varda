@@ -3,7 +3,7 @@ import { UNITS_PER_DEG } from '../routing/graph';
 import { cumulative, turnAngle } from '../routing/maneuvers';
 import type { LonLat, RoadSeg } from '../routing/plan';
 import { CLASS_CAP_KMH } from '../routing/roadClass';
-import { nearestOnLine, type RoadLine, type RoadLines } from '../routing/snap';
+import { beyond, nearestOnLine, type RoadLine, type RoadLines } from '../routing/snap';
 
 /** A track point this close to a road line (m) is on that road. */
 export const ON_ROAD_M = 20;
@@ -31,6 +31,7 @@ async function roadAt(lines: RoadLines, p: LonLat): Promise<Hit> {
   const kx = Math.cos((p[1] * Math.PI) / 180);
   let best: { line: RoadLine; m: number } | null = null;
   for (const line of await lines(x, y, ON_ROAD_M * 2)) {
+    if (beyond(line, x, y, kx, ON_ROAD_M)) continue;
     const m = Math.sqrt(nearestOnLine(line.coords, x, y, kx).d2) * metresPerUnit;
     if (m <= ON_ROAD_M && (!best || m < best.m)) best = { line, m };
   }

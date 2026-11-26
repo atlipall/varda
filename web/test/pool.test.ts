@@ -193,4 +193,22 @@ describe('TilePool', () => {
     w.reply({ type: 'route', id: msg.id, result: { status: 'no-route' } });
     expect(await r).toEqual({ status: 'no-route' });
   });
+
+  test('the road classes go to a worker once, and again to one that replaced it', async () => {
+    const pool = new TilePool(payload, 1);
+    const roads = { t: [[5, 1]] as Array<[number, 0 | 1 | 2]> };
+    const sent = (w: FakeWorker) => w.posted.filter((m) => m.type === 'route' || m.type === 'match').map((m) => 'roads' in m);
+    void pool.route([0, 0], [1, 1], true, false, roads).catch(() => {});
+    void pool.matchTrack([[0, 0], [1, 1]], undefined, roads).catch(() => {});
+    void pool.route([0, 0], [1, 1], true, false, roads).catch(() => {});
+    const first = FakeWorker.instances[0];
+    expect(sent(first)).toEqual([true, false, false]);
+    // Another map's classes are sent.
+    void pool.route([0, 0], [1, 1], true, false, { u: [] }).catch(() => {});
+    expect(sent(first)).toEqual([true, false, false, true]);
+    first.fail();
+    const second = FakeWorker.instances[1];
+    void pool.route([0, 0], [1, 1], true, false, roads).catch(() => {});
+    expect(sent(second)).toEqual([true]);
+  });
 });

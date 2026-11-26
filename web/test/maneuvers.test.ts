@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { maneuvers, roadLabel, ROUNDABOUT } from '../src/routing/maneuvers';
 import type { LonLat, RoadSeg } from '../src/routing/plan';
 import { Progress } from '../src/routing/progress';
+import { OldProgress } from './helpers/oldProgress';
 
 const seg = (start: number, name: string | null, extra: Partial<RoadSeg> = {}): RoadSeg => ({ start, name, type: 1, junction: true, seconds: 10, ...extra });
 const kinds = (ms: ReturnType<typeof maneuvers>) => ms.map((m) => `${m.kind}: ${m.text}`);
@@ -114,5 +115,41 @@ describe('Progress', () => {
     // 18 m from the way up, 15 m from the way down: still on the way up.
     const w = p.locate([0.000162, 0.0026]);
     expect(Math.round(w.along)).toBe(289);
+  });
+
+  test('the same as the plain search along every stretch, on the route and off it', () => {
+    // A winding 3,000-point route near 64°N with a hairpin, repeated points and fixes on it, near
+    // it, far off it (the whole-route search) and back.
+    let seed = 3;
+    const rnd = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32);
+    const route: LonLat[] = [[-20, 64]];
+    for (let i = 1; i < 3000; i++) {
+      const [x, y] = route[i - 1];
+      if (i % 97 === 0) route.push([x, y]);
+      else route.push([x + 0.0006 * Math.cos(i / 150) + (rnd() - 0.5) * 0.0002, y + (i < 1500 ? 0.0003 : -0.00029) + (rnd() - 0.5) * 0.0002]);
+    }
+    const segs = [seg(0, 'a', { seconds: 300 }), seg(1200, 'b', { seconds: 900 }), seg(2500, 'c', { seconds: 100 })];
+    const now = new Progress(route, segs, 1300);
+    const before = new OldProgress(route, segs, 1300);
+    for (let f = 0; f < 600; f++) {
+      const i = Math.min(route.length - 1, Math.floor(f * 5 + rnd() * 3));
+      const far = f % 50 > 40 ? 0.01 + rnd() * 0.05 : f % 7 === 0 ? 0.0012 : 0.00005;
+      const fix: LonLat = [route[i][0] + (rnd() - 0.5) * far, route[i][1] + (rnd() - 0.5) * far];
+      const w = now.locate(fix);
+      expect(w).toEqual(before.locate(fix));
+      for (const d of [-50, 0, 0.5, 120, 10_000]) {
+        expect(now.left(w.along + d)).toEqual(before.left(w.along + d));
+        expect(now.pointAt(w.along + d)).toEqual(before.pointAt(w.along + d));
+      }
+    }
+    for (const along of [-1, 0, now.total, now.total + 1, now.cum[97], now.cum[98]]) {
+      expect(now.left(along)).toEqual(before.left(along));
+      expect(now.pointAt(along)).toEqual(before.pointAt(along));
+    }
+    const one = new Progress([[0, 0]], undefined, 0);
+    const oneBefore = new OldProgress([[0, 0]], undefined, 0);
+    expect(one.locate([0.001, 0])).toEqual(oneBefore.locate([0.001, 0]));
+    expect(one.left(0)).toEqual(oneBefore.left(0));
+    expect(one.pointAt(0)).toEqual(oneBefore.pointAt(0));
   });
 });

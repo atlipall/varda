@@ -233,6 +233,56 @@ describe('fastestRoute with several sources and targets', () => {
     expect(fastestRoute(g, a, bb, true, 1, ROUTE_PREFERENCE)!.nodes).toEqual([a, c, bb]);
   });
 
+  test('searches one after another on the same graph find what a fresh graph finds, the fastest way', () => {
+    // A 30 × 30 grid of streets (about 0.5-1.5 km each, 30-90 km/h, both ways) at 64°N.
+    const N = 30;
+    let seed = 7;
+    const rnd = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32);
+    const make = () => {
+      seed = 7;
+      const b = new GraphBuilder();
+      const id = (i: number, j: number) => b.node(U(-20 + i * 0.02 + rnd() * 0.004), U(64 + j * 0.009 + rnd() * 0.002));
+      const ids: number[] = [];
+      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) ids.push(id(i, j));
+      const at = (i: number, j: number) => ids[i * N + j];
+      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) for (const [di, dj] of [[1, 0], [0, 1]]) {
+        if (i + di >= N || j + dj >= N) continue;
+        const m = 1000 + rnd() * 600;
+        const kmh = 30 + Math.floor(rnd() * 7) * 10;
+        const flags = rnd() < 0.1 ? EDGE_FROAD : 0;
+        b.edge(at(i, j), at(i + di, j + dj), m, kmh, flags, null, { tile: 1, net: i * 100 + j }, Math.floor(rnd() * 5));
+        b.edge(at(i + di, j + dj), at(i, j), m, kmh, flags, null, { tile: 1, net: i * 100 + j }, Math.floor(rnd() * 5));
+      }
+      return { g: b.build(), at };
+    };
+    // Plain Dijkstra on driving time, for the fastest time with no preference.
+    const dijkstra = (g: ReturnType<typeof make>['g'], s: number, t: number, allow: boolean) => {
+      const d = new Float64Array(g.nodeX.length).fill(Infinity);
+      const done = new Uint8Array(g.nodeX.length);
+      d[s] = 0;
+      for (;;) {
+        let u = -1;
+        for (let v = 0; v < d.length; v++) if (!done[v] && d[v] < Infinity && (u < 0 || d[v] < d[u])) u = v;
+        if (u < 0 || u === t) return d[t];
+        done[u] = 1;
+        for (let e = g.edgeStart[u]; e < g.edgeStart[u + 1]; e++) {
+          if (!allow && g.edgeFlags[e] & EDGE_FROAD) continue;
+          d[g.edgeTo[e]] = Math.min(d[g.edgeTo[e]], d[u] + g.edgeLen[e] / (g.edgeSpeed[e] / 3.6));
+        }
+      }
+    };
+    const { g: shared, at } = make();
+    const pairs: Array<[number, number, boolean, number]> = [];
+    for (let k = 0; k < 12; k++) pairs.push([at(k % N, (k * 7) % N), at((k * 11 + 5) % N, (k * 13 + 3) % N), k % 3 !== 0, k % 4 === 0 ? 0.6 : 1]);
+    for (const [s, t, allow, fw] of [...pairs, ...pairs.reverse()]) {
+      const r = fastestRoute(shared, s, t, allow, fw, ROUTE_PREFERENCE);
+      const fresh = fastestRoute(make().g, s, t, allow, fw, ROUTE_PREFERENCE);
+      expect(r?.edges).toEqual(fresh?.edges);
+      const plain = fastestRoute(shared, s, t, allow);
+      if (plain) expect(plain.seconds).toBeCloseTo(dijkstra(shared, s, t, allow), 6);
+    }
+  });
+
   test('a node that is both a source and a target gives an empty route', () => {
     const { g, n } = line();
     const r = fastestRoute(g, [{ node: n[1], cost: 5 }], [{ node: n[1], cost: 7 }], true)!;

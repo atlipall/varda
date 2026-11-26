@@ -177,7 +177,7 @@ export function xyBounds(xy: Int32Array): BBox {
 /** Each object's `coordsBounds` (west, south, east, north in turn), made once per decoded
  *  subdivision: a cached subdivision is drawn in many tiles. */
 const boundsMade = new WeakMap<RawObject[], Int32Array>();
-function boundsOf(objs: RawObject[]): Int32Array {
+export function boundsOf(objs: RawObject[]): Int32Array {
   let out = boundsMade.get(objs);
   if (!out) {
     const all = new Int32Array(objs.length * 4);

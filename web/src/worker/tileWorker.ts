@@ -18,9 +18,19 @@ let opened: Promise<GarminMap> | null = null;
 /** The road network built from NOD, plus an index over its nodes and the road classes it was built
  *  with (also used to pick eligible road lines when snapping); built once
  *  per open map, on the first `route` request, and reset whenever a new map is opened. The road
- *  classes (`msg.roads`) of that first request are the ones used for the whole session — a later
- *  `route` call with different classes still gets the network built from the first call's. */
+ *  classes of that first request are the ones used for the whole session — a later `route` call
+ *  with different classes still gets the network built from the first call's. */
 let network: Promise<{ graph: RoadGraph; index: NodeIndex; roads: RoadClasses }> | null = null;
+/** The map's road classes (F-roads and tracks by NET offset, from the place index): the pool sends
+ *  them (`msg.roads`) with this worker's first `route` or `match` request, not with every one, as
+ *  a big map's are big. Dropped when a map is opened. */
+let roadClasses: RoadClasses | null = null;
+/** The road classes of a `route` or `match` request: its own, or those sent before. */
+function roadsFor(msg: { roads?: RoadClasses }): RoadClasses {
+  if (msg.roads) roadClasses = msg.roads;
+  if (!roadClasses) throw new Error('road classes not sent');
+  return roadClasses;
+}
 /** Set synchronously when `open` arrives, so a `dem` request that lands while `open` is still
  *  building the DEM (e.g. right after the pool respawned this worker) waits instead of failing. */
 let demReady: Promise<Dem | null> | null = null;
@@ -59,6 +69,7 @@ self.onmessage = async (e: MessageEvent) => {
       cache.clear();
       cancelled.clear();
       network = null;
+      roadClasses = null;
       opened = GarminMap.open(new BlobSource(msg.file as File));
       const hgt = (msg.hgt ?? []) as File[];
       const overviewFile = (msg.overview ?? null) as File | null;
@@ -142,7 +153,7 @@ self.onmessage = async (e: MessageEvent) => {
         // next 'route' request retries instead of failing until the worker is reopened. Mirrors
         // SubdivisionCache.get()'s retry-on-rejection in ../tiles/buildTile.ts.
         // The handler comes after the mapper, so a failing NodeIndex construction is caught too.
-        const roads = msg.roads as RoadClasses;
+        const roads = roadsFor(msg);
         const building: Promise<{ graph: RoadGraph; index: NodeIndex; roads: RoadClasses }> = buildNetwork(m, roads)
           .then((graph) => ({ graph, index: new NodeIndex(graph), roads }))
           .catch((err) => {
@@ -152,7 +163,7 @@ self.onmessage = async (e: MessageEvent) => {
         network = building;
       }
       const { graph, index, roads } = await network;
-      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd, { labels: false })).then((objs) => m.withLabels(tile, objs));
+      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd, { labels: false }));
       const lines = roadLineSource(m, decode, roads);
       const shape = (route: Route) => routeShape(graph, index, route, lines);
       const result = await planRoute(graph, index, lines, msg.from as [number, number], msg.to as [number, number], msg.allowFRoads as boolean, shape, msg.preferFRoads === true);
@@ -161,8 +172,8 @@ self.onmessage = async (e: MessageEvent) => {
       // A track matched to the map's roads (for its turn instructions): only the road lines needed.
       if (!opened) throw new Error('map not opened');
       const m = await opened;
-      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd, { labels: false })).then((objs) => m.withLabels(tile, objs));
-      const segs = await matchTrack(msg.coords as Array<[number, number]>, roadLineSource(m, decode, msg.roads as RoadClasses), msg.times as Array<number | null> | undefined);
+      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd, { labels: false }));
+      const segs = await matchTrack(msg.coords as Array<[number, number]>, roadLineSource(m, decode, roadsFor(msg)), msg.times as Array<number | null> | undefined);
       self.postMessage({ type: 'match', id: msg.id, segs });
     }
   } catch (err) {

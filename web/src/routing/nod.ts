@@ -73,32 +73,63 @@ export interface NodNode {
 /** More links than this from one node means the data is damaged. */
 const MAX_ARCS = 64;
 
-/** Decodes the node record at `off` in NOD1. */
-export function parseNode(nod1: Uint8Array, off: number, hdr: NodHeader): NodNode {
+/** One node record decoded into reused typed arrays (no objects), for reading millions of nodes:
+ *  `count` arcs, arc k's fields at index k. */
+export class NodeRecord {
+  offset = 0;
+  flags = 0;
+  x = 0;
+  y = 0;
+  end = 0;
+  count = 0;
+  readonly target = new Int32Array(MAX_ARCS);
+  readonly length = new Int32Array(MAX_ARCS);
+  /** 1 or 0. */
+  readonly forward = new Uint8Array(MAX_ARCS);
+  readonly direct = new Uint8Array(MAX_ARCS);
+  readonly net = new Int32Array(MAX_ARCS);
+  readonly info = new Uint8Array(MAX_ARCS);
+  readonly access = new Uint8Array(MAX_ARCS);
+}
+
+/** The position (map units) of the node record at `off` in NOD1, into `out`. Returns `p`, the
+ *  offset of its first arc. */
+function readPosition(nod1: Uint8Array, off: number, align: number, out: { x: number; y: number }): number {
+  const tables = ((off >> align) + nod1[off] + 1) << align;
+  const baseX = s24(u24(nod1, tables + 1));
+  const baseY = s24(u24(nod1, tables + 4));
+  const flags = nod1[off + 1];
+  if (flags & 0x20) {
+    const v = u32(nod1, off + 2);
+    out.x = baseX + signed(v & 0xffff, 16);
+    out.y = baseY + signed(v >>> 16, 16);
+    return off + 6;
+  }
+  const v = u24(nod1, off + 2);
+  out.x = baseX + signed(v & 0xfff, 12);
+  out.y = baseY + signed(v >>> 12, 12);
+  return off + 5;
+}
+
+/** Just the position of the node record at `off` in NOD1 (map units), into `out`. */
+export function nodePosition(nod1: Uint8Array, off: number, hdr: NodHeader, out: { x: number; y: number }): void {
+  readPosition(nod1, off, hdr.align, out);
+}
+
+/** Decodes the node record at `off` in NOD1 into `rec`. */
+export function decodeNode(nod1: Uint8Array, off: number, hdr: NodHeader, rec: NodeRecord): void {
   const align = hdr.align;
   const tables = ((off >> align) + nod1[off] + 1) << align;
   const nA = nod1[tables + 7];
   const tableA = tables + 9;
   const tableB = tableA + nA * hdr.tableARecord;
-  const baseX = s24(u24(nod1, tables + 1));
-  const baseY = s24(u24(nod1, tables + 4));
   const flags = nod1[off + 1];
-  let p = off + 2;
-  let dx: number;
-  let dy: number;
-  if (flags & 0x20) {
-    const v = u32(nod1, p);
-    dx = signed(v & 0xffff, 16);
-    dy = signed(v >>> 16, 16);
-    p += 4;
-  } else {
-    const v = u24(nod1, p);
-    dx = signed(v & 0xfff, 12);
-    dy = signed(v >>> 12, 12);
-    p += 3;
-  }
-  const node: NodNode = { offset: off, flags, x: baseX + dx, y: baseY + dy, arcs: [], end: p };
-  if (!(flags & 0x40)) return node;
+  let p = readPosition(nod1, off, align, rec);
+  rec.offset = off;
+  rec.flags = flags;
+  rec.count = 0;
+  rec.end = p;
+  if (!(flags & 0x40)) return;
 
   let first = true;
   let compact = false;
@@ -108,7 +139,7 @@ export function parseNode(nod1: Uint8Array, off: number, hdr: NodHeader): NodNod
   for (;;) {
     // A record that runs off the end of the data (a truncated or damaged map), or one with more
     // links than any junction has: stop here rather than reading on forever.
-    if (p + 2 > nod1.length || node.arcs.length >= MAX_ARCS) break;
+    if (p + 2 > nod1.length || rec.count >= MAX_ARCS) break;
     const fa = nod1[p++];
     const fb = nod1[p++];
     let target: number;
@@ -159,25 +190,72 @@ export function parseNode(nod1: Uint8Array, off: number, hdr: NodHeader): NodNod
       if ((c & 0xe0) === 0) p++;
     }
     const a = tableA + indexA * hdr.tableARecord;
-    node.arcs.push({ target, length, forward, direct, net: u24(nod1, a) & 0x3fffff, info: nod1[a + 3], access: nod1[a + 4] });
+    const k = rec.count++;
+    rec.target[k] = target;
+    rec.length[k] = length;
+    rec.forward[k] = forward ? 1 : 0;
+    rec.direct[k] = direct ? 1 : 0;
+    rec.net[k] = u24(nod1, a) & 0x3fffff;
+    rec.info[k] = nod1[a + 3];
+    rec.access[k] = nod1[a + 4];
     prevForward = forward;
     first = false;
     if (fb & 0x80) break;
   }
-  node.end = p;
-  return node;
+  rec.end = p;
+}
+
+/** The record as an object. */
+export function nodNode(rec: NodeRecord): NodNode {
+  const arcs: NodArc[] = [];
+  for (let k = 0; k < rec.count; k++) {
+    arcs.push({ target: rec.target[k], length: rec.length[k], forward: rec.forward[k] === 1, direct: rec.direct[k] === 1, net: rec.net[k], info: rec.info[k], access: rec.access[k] });
+  }
+  return { offset: rec.offset, flags: rec.flags, x: rec.x, y: rec.y, arcs, end: rec.end };
+}
+
+/** Decodes the node record at `off` in NOD1. */
+export function parseNode(nod1: Uint8Array, off: number, hdr: NodHeader): NodNode {
+  const rec = new NodeRecord();
+  decodeNode(nod1, off, hdr, rec);
+  return nodNode(rec);
+}
+
+/**
+ * Visits every node reachable from the road start nodes once, depth first from the last start node
+ * (the order readNodes keeps), each decoded into the one `rec` passed to `visit`. Nothing per node
+ * is kept but a bit, so a big map's millions of nodes cost no objects.
+ */
+export function eachNode(nod1: Uint8Array, nod2: Uint8Array, hdr: NodHeader, visit: (rec: NodeRecord) => void): void {
+  const seen = new Uint8Array((nod1.length >> 3) + 1);
+  const isSeen = (off: number) => (seen[off >> 3] & (1 << (off & 7))) !== 0;
+  const starts = nod2StartNodes(nod2);
+  let stack = Int32Array.from(starts);
+  let top = stack.length;
+  const rec = new NodeRecord();
+  while (top) {
+    const off = stack[--top];
+    if (off < 0 || off >= nod1.length || isSeen(off)) continue;
+    seen[off >> 3] |= 1 << (off & 7);
+    decodeNode(nod1, off, hdr, rec);
+    visit(rec);
+    for (let k = 0; k < rec.count; k++) {
+      const t = rec.target[k];
+      // Out of range: dropped when popped, as an already-seen node is.
+      if (t >= 0 && t < nod1.length && isSeen(t)) continue;
+      if (top === stack.length) {
+        const bigger = new Int32Array(Math.max(1024, stack.length * 2));
+        bigger.set(stack);
+        stack = bigger;
+      }
+      stack[top++] = t;
+    }
+  }
 }
 
 /** All nodes reachable from the road start nodes, by offset. */
 export function readNodes(nod1: Uint8Array, nod2: Uint8Array, hdr: NodHeader): Map<number, NodNode> {
   const nodes = new Map<number, NodNode>();
-  const queue = nod2StartNodes(nod2);
-  while (queue.length) {
-    const off = queue.pop()!;
-    if (nodes.has(off) || off < 0 || off >= nod1.length) continue;
-    const n = parseNode(nod1, off, hdr);
-    nodes.set(off, n);
-    for (const a of n.arcs) if (!nodes.has(a.target)) queue.push(a.target);
-  }
+  eachNode(nod1, nod2, hdr, (rec) => nodes.set(rec.offset, nodNode(rec)));
   return nodes;
 }
