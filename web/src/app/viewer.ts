@@ -64,6 +64,12 @@ declare global {
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+/** The most device pixels per CSS pixel the map is drawn at. The iPhone 13's screen is 3×: at 2×
+ *  the GPU fills 44% as many pixels each frame, and lines and text stay sharp. Screens at 2× or
+ *  less (the car's head unit, most Macs) are drawn at their own ratio. */
+export const MAX_MAP_PIXEL_RATIO = 2;
+export const mapPixelRatio = (screen: number = devicePixelRatio): number => Math.min(screen, MAX_MAP_PIXEL_RATIO);
 const glyphsUrl = () => new URL('fonts/', document.baseURI).href + '{fontstack}/{range}.pbf';
 
 export interface ViewerOptions {
@@ -137,7 +143,11 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   const view = session && contains(src.meta.bounds, session.view.center)
     ? { center: session.view.center, zoom: session.view.zoom, bearing: session.view.bearing }
     : { bounds: mapArea(src.meta.bounds) };
-  const map = new maplibregl.Map({ container: 'map', style: src.style, ...view, maxZoom: 18, attributionControl: false });
+  // Labels appear at once, without fading: a fade redraws the whole map every frame for its length.
+  const map = new maplibregl.Map({
+    container: 'map', style: src.style, ...view, maxZoom: 18, attributionControl: false,
+    pixelRatio: mapPixelRatio(), fadeDuration: 0,
+  });
   // Register every icon/pattern before any tile is fetched (see src/ui/images.ts); the
   // styleimagemissing handler stays as a defensive fallback.
   preloadImages(map, src.images);
