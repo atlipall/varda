@@ -218,7 +218,8 @@ export class TilePool {
     if (this.disposed) return Promise.reject(new Error('pool disposed'));
     const live = this.live();
     if (!live.length) return Promise.reject(new Error('no workers available'));
-    return this.call(live[live.length - 1], { type: 'route', from, to, allowFRoads, preferFRoads, roads }).then((msg) => msg.result as RouteReply);
+    const w = live[live.length - 1];
+    return this.call(w, { type: 'route', from, to, allowFRoads, preferFRoads, ...this.roadsFor(w, roads) }).then((msg) => msg.result as RouteReply);
   }
 
   /** Road stretches along a track, matched to the map's roads (for its turn instructions). */
@@ -226,7 +227,19 @@ export class TilePool {
     if (this.disposed) return Promise.reject(new Error('pool disposed'));
     const live = this.live();
     if (!live.length) return Promise.reject(new Error('no workers available'));
-    return this.call(live[live.length - 1], { type: 'match', coords, times, roads }).then((msg) => msg.segs as RoadSeg[]);
+    const w = live[live.length - 1];
+    return this.call(w, { type: 'match', coords, times, ...this.roadsFor(w, roads) }).then((msg) => msg.segs as RoadSeg[]);
+  }
+
+  /** The road classes each worker was last sent (a respawned worker is a new one). */
+  private readonly roadsSent = new WeakMap<Worker, RoadClasses>();
+
+  /** `roads` for a message to `w`, unless it has them already: they're copied to the worker with
+   *  each message they're in, and a big map's run to hundreds of thousands of entries. */
+  private roadsFor(w: Worker, roads: RoadClasses): { roads?: RoadClasses } {
+    if (this.roadsSent.get(w) === roads) return {};
+    this.roadsSent.set(w, roads);
+    return { roads };
   }
 
   /** Terminates every worker and rejects every pending call with Error('pool disposed'); any
