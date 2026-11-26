@@ -1,3 +1,4 @@
+import { coordsBounds } from '../tiles/buildTile';
 import { canArrive, canLeave, EDGE_FROAD, edgeSource, metresBetween, UNITS_PER_DEG, type NodeIndex, type RoadGraph } from './graph';
 import type { RoadClass } from './roadClass';
 
@@ -39,13 +40,7 @@ const boxes = new WeakMap<RoadLine, Float64Array>();
 function boxOf(line: RoadLine): Float64Array {
   let b = boxes.get(line);
   if (!b) {
-    b = new Float64Array([Infinity, Infinity, -Infinity, -Infinity]);
-    for (const [x, y] of line.coords) {
-      if (x < b[0]) b[0] = x;
-      if (y < b[1]) b[1] = y;
-      if (x > b[2]) b[2] = x;
-      if (y > b[3]) b[3] = y;
-    }
+    b = new Float64Array(coordsBounds(line.coords));
     boxes.set(line, b);
   }
   return b;

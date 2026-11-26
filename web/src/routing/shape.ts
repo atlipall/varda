@@ -60,7 +60,8 @@ async function along(lines: RoadLines, index: NodeIndex, tile: number, net: numb
  *  their padded bounds (map units) so a lookup reads only the few near a point. Made once per map. */
 interface SubdivisionGrid {
   bits: number;
-  /** Per subdivision, in map order: its tile's index, the subdivision, padded bounds w, s, e, n. */
+  /** Per subdivision k, in map order: its tile's index, the subdivision, and its padded bounds
+   *  (w, s, e, n at 4k … 4k + 3). */
   tileOf: Int32Array;
   sds: Subdivision[];
   bounds: Float64Array;
@@ -200,7 +201,7 @@ function classesByTile(map: GarminMap, classes: RoadClasses): Array<Map<number, 
   return byTile;
 }
 
-/** A decoded line's points (map units). */
+/** A decoded line's points (map units): the one place a decoded object's coordinates are read. */
 const lineCoords = (o: RawObject): Array<[number, number]> => o.coords;
 
 /**

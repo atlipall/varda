@@ -80,14 +80,17 @@ export function addTileNetwork(b: GraphBuilder, nodes: Map<number, NodNode>, cla
 export async function buildNetwork(map: GarminMap, classes: RoadClasses): Promise<RoadGraph> {
   const b = new GraphBuilder();
   const at = { x: 0, y: 0 };
+  let idsBuffer = new Int32Array(0);
   for (const [i, tile] of map.tiles.entries()) {
     const nod = await map.readSubfile(`${tile.id}.NOD`);
     if (!nod) continue;
     const hdr = parseNodHeader(nod);
     const nod1 = nod.subarray(hdr.nod1.offset, hdr.nod1.offset + hdr.nod1.length);
     const nod2 = nod.subarray(hdr.nod2.offset, hdr.nod2.offset + hdr.nod2.length);
-    // Graph id + 1 by offset, 0 for none yet.
-    const ids = new Int32Array(nod1.length);
+    // Graph id + 1 by offset, 0 for none yet; one buffer for every tile, grown to the largest.
+    if (idsBuffer.length < nod1.length) idsBuffer = new Int32Array(nod1.length);
+    else idsBuffer.fill(0, 0, nod1.length);
+    const ids = idsBuffer;
     const nodes: TileNodes = {
       // Every offset in NOD1 an arc leads to is a node the walk reaches (it follows every arc).
       has: (off) => off >= 0 && off < nod1.length,

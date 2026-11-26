@@ -160,6 +160,7 @@ export class TilePool {
   async open(): Promise<OpenMeta> {
     if (this.disposed) throw new Error('pool disposed');
     this.opened = true;
+    this.roadsSent = new WeakMap(); // opening makes the workers forget them
     const live = this.live();
     if (!live.length) throw new Error('no workers available');
     const results = await Promise.all(live.map((w) => this.call(w, { type: 'open', ...this.payload })));
@@ -232,7 +233,7 @@ export class TilePool {
   }
 
   /** The road classes each worker was last sent (a respawned worker is a new one). */
-  private readonly roadsSent = new WeakMap<Worker, RoadClasses>();
+  private roadsSent = new WeakMap<Worker, RoadClasses>();
 
   /** `roads` for a message to `w`, unless it has them already: they're copied to the worker with
    *  each message they're in, and a big map's run to hundreds of thousands of entries. */
