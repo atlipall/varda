@@ -143,25 +143,32 @@ function orIfPastEnd<T>(f: () => T, fallback: T): T {
   }
 }
 
-/** A map that forgets the least recently used entries past `limit`. */
+/**
+ * A map that keeps about the `limit` most recently used entries, in two halves: when the newer one
+ * fills, the older one is dropped. (Deleting a Map's oldest entry one at a time leaves holes at its
+ * start that every `keys().next()` walks past: lookups slowed to milliseconds on a long route.)
+ */
 class Lru<V> {
-  private readonly map = new Map<number, V>();
+  private map = new Map<number, V>();
+  private old = new Map<number, V>();
 
   constructor(private readonly limit: number) {}
 
   get(key: number): V | undefined {
-    const v = this.map.get(key);
-    if (v !== undefined) {
-      this.map.delete(key);
-      this.map.set(key, v);
+    let v = this.map.get(key);
+    if (v === undefined) {
+      v = this.old.get(key);
+      if (v !== undefined) this.set(key, v);
     }
     return v;
   }
 
   set(key: number, v: V): void {
-    this.map.delete(key);
     this.map.set(key, v);
-    if (this.map.size > this.limit) this.map.delete(this.map.keys().next().value!);
+    if (this.map.size >= this.limit / 2) {
+      this.old = this.map;
+      this.map = new Map();
+    }
   }
 }
 
