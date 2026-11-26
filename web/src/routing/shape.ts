@@ -1,7 +1,7 @@
-import type { RawObject } from '../img/rgn';
+import { pairs, type RawObject } from '../img/rgn';
 import type { Subdivision } from '../img/tre';
 import { objectName, type GarminMap, type MapTile } from '../map/garminMap';
-import { paddedSubdivisionBounds } from '../tiles/buildTile';
+import { boundsOf, paddedSubdivisionBounds } from '../tiles/buildTile';
 import { EDGE_FROAD, edgeSource, metresBetween, UNITS_PER_DEG, type NodeIndex, type RoadGraph, type Route } from './graph';
 import type { RoadSeg, Shaped } from './plan';
 import type { RoadClass, RoadClasses } from './roadClass';
@@ -202,7 +202,7 @@ function classesByTile(map: GarminMap, classes: RoadClasses): Array<Map<number, 
 }
 
 /** A decoded line's points (map units): the one place a decoded object's coordinates are read. */
-const lineCoords = (o: RawObject): Array<[number, number]> => o.coords;
+const lineCoords = (o: RawObject): Array<[number, number]> => pairs(o.xy);
 
 /**
  * Road lines for snapping (see ./snap.ts): the routable lines (`labelSrc === 'net'`) of the
@@ -214,27 +214,34 @@ const lineCoords = (o: RawObject): Array<[number, number]> => o.coords;
  */
 export function roadLineSource(map: GarminMap, decode: (tile: MapTile, sd: Subdivision) => Promise<RawObject[]>, classes: RoadClasses): RoadLines {
   const grid = gridOf(map);
-  const made = new Map<number, SubdivisionLines>();
+  const made = new Map<number, Promise<SubdivisionLines>>();
   const classOf = classesByTile(map, classes);
   const unitsPerM = 1 / metresBetween(0, 0, 0, 1);
-  const linesOf = async (k: number): Promise<SubdivisionLines> => {
-    const have = made.get(k);
-    if (have) return have;
+  const make = async (k: number): Promise<SubdivisionLines> => {
     const i = grid.tileOf[k];
     const tile = map.tiles[i];
     const objs = await decode(tile, grid.sds[k]);
-    let s = made.get(k) ?? linesOfObjects.get(objs);
-    if (!s || s.classes !== classes) {
-      s = {
-        classes,
-        lines: objs
-          .filter((o) => o.kind === 'line' && o.labelSrc === 'net')
-          .map((o) => ({ tile: i, net: o.label, cls: classOf[i].get(o.label) ?? 0, coords: lineCoords(o), name: objectName(tile, o), type: o.type })),
-      };
-      linesOfObjects.set(objs, s);
-    }
-    made.set(k, s);
+    const have = linesOfObjects.get(objs);
+    if (have?.classes === classes) return have;
+    // Only the road lines' names are looked up (a subdivision's other labels cost far more).
+    const roads = objs.filter((o) => o.kind === 'line' && o.labelSrc === 'net');
+    await map.withLabels(tile, roads);
+    // The cache's bounds of each object, made once per decoded subdivision.
+    const bounds = boundsOf(objs);
+    const lines: RoadLine[] = [];
+    objs.forEach((o, j) => {
+      if (o.kind !== 'line' || o.labelSrc !== 'net') return;
+      lines.push({ tile: i, net: o.label, cls: classOf[i].get(o.label) ?? 0, coords: lineCoords(o), name: objectName(tile, o), type: o.type, box: bounds.subarray(j * 4, j * 4 + 4) });
+    });
+    const s = { classes, lines };
+    linesOfObjects.set(objs, s);
     return s;
+  };
+  // Promises, so lines asked for twice at once are still made once.
+  const linesOf = (k: number): Promise<SubdivisionLines> => {
+    let p = made.get(k);
+    if (!p) made.set(k, (p = make(k)));
+    return p;
   };
   const near = (x: number, y: number, radiusM: number): Promise<SubdivisionLines[]> => {
     const ry = radiusM * unitsPerM;

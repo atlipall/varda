@@ -1,3 +1,5 @@
+import { concat } from './jpeg';
+
 /**
  * The metadata of a HEIC photo (what an iPhone stores, and what a Mac or the Files picker can hand
  * over as it is): its EXIF, XMP and colour profile, so the JPEG copy can carry them.
@@ -44,12 +46,14 @@ function boxes(b: Uint8Array, view: DataView, start: number, end: number): Box[]
   return out;
 }
 
-export function heifMetadata(b: Uint8Array): HeifMetadata {
-  const none: HeifMetadata = { exif: null, xmp: null, icc: null };
-  if (!isHeif(b)) return none;
+/** An item's bytes: [file offset, length] pieces. */
+type Extents = Array<[number, number]>;
+
+/** What the `meta` box says: where the EXIF and XMP items' bytes are in the file, and the colour
+ *  profile (a property, so in the box itself). `b` holds the box (`meta` is where in `b`), and
+ *  `b[0]` is at file offset `at`. */
+function readMeta(b: Uint8Array, meta: Box, at: number): { exif: Extents | null; xmp: Extents | null; icc: Uint8Array | null } {
   const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  const meta = boxes(b, view, 0, b.length).find((x) => x.type === 'meta');
-  if (!meta) return none;
   // `meta` is a full box: version and flags first.
   const kids = boxes(b, view, meta.start + 4, meta.end);
   const kid = (t: string) => kids.find((x) => x.type === t);
@@ -84,9 +88,9 @@ export function heifMetadata(b: Uint8Array): HeifMetadata {
     }
   }
 
-  // Where each item's bytes are.
+  // Where each item's bytes are (in the file; `idat` ones are in the meta box itself).
   const idat = kid('idat');
-  const where = new Map<number, Array<[number, number]>>();
+  const where = new Map<number, Extents>();
   const iloc = kid('iloc');
   if (iloc) {
     const v = b[iloc.start];
@@ -108,46 +112,23 @@ export function heifMetadata(b: Uint8Array): HeifMetadata {
       read(2); // data reference index
       const base = read(baseSize);
       const extents = read(2);
-      const parts: Array<[number, number]> = [];
+      const parts: Extents = [];
       for (let e = 0; e < extents; e++) {
         if (idxSize) read(idxSize);
         const off = read(offSize);
         const len = read(lenSize);
-        const from = (method === 1 ? (idat?.start ?? 0) : 0) + base + off;
+        const from = (method === 1 ? at + (idat?.start ?? 0) : 0) + base + off;
         parts.push([from, len]);
       }
       if (method === 0 || (method === 1 && idat)) where.set(id, parts);
     }
   }
-  const itemBytes = (id: number): Uint8Array | null => {
-    const parts = where.get(id);
-    if (!parts) return null;
-    if (parts.some(([o, l]) => o + l > b.length)) return null;
-    if (parts.length === 1) return b.subarray(parts[0][0], parts[0][0] + parts[0][1]);
-    const out = new Uint8Array(parts.reduce((n, [, l]) => n + l, 0));
-    let at = 0;
-    for (const [o, l] of parts) {
-      out.set(b.subarray(o, o + l), at);
-      at += l;
-    }
-    return out;
-  };
 
-  let exif: Uint8Array | null = null;
-  let xmp: string | null = null;
+  let exif: Extents | null = null;
+  let xmp: Extents | null = null;
   for (const [id, it] of items) {
-    if (it.type === 'Exif' && !exif) {
-      const data = itemBytes(id);
-      // The item starts with where the TIFF header is, past a 4-byte length.
-      if (data && data.length > 8) {
-        const skip = new DataView(data.buffer, data.byteOffset).getUint32(0);
-        const tiff = data.subarray(4 + skip);
-        if (tiff.length > 8 && ((tiff[0] === 0x49 && tiff[1] === 0x49) || (tiff[0] === 0x4d && tiff[1] === 0x4d))) exif = tiff;
-      }
-    } else if (it.type === 'mime' && it.mime === 'application/rdf+xml' && xmp === null) {
-      const data = itemBytes(id);
-      if (data) xmp = new TextDecoder().decode(data);
-    }
+    if (it.type === 'Exif' && !exif) exif = where.get(id) ?? null;
+    else if (it.type === 'mime' && it.mime === 'application/rdf+xml' && !xmp) xmp = where.get(id) ?? null;
   }
 
   // The colour profile: the primary item's colr property, else the first ICC one there is.
@@ -183,4 +164,67 @@ export function heifMetadata(b: Uint8Array): HeifMetadata {
     if (!icc) for (const pr of props) if ((icc = profileOf(pr))) break;
   }
   return { exif, xmp, icc };
+}
+
+function decoded(exifItem: Uint8Array | null, xmpItem: Uint8Array | null, icc: Uint8Array | null): HeifMetadata {
+  let exif: Uint8Array | null = null;
+  // The item starts with where the TIFF header is, past a 4-byte length.
+  if (exifItem && exifItem.length > 8) {
+    const skip = new DataView(exifItem.buffer, exifItem.byteOffset).getUint32(0);
+    const tiff = exifItem.subarray(4 + skip);
+    if (tiff.length > 8 && ((tiff[0] === 0x49 && tiff[1] === 0x49) || (tiff[0] === 0x4d && tiff[1] === 0x4d))) exif = tiff;
+  }
+  return { exif, xmp: xmpItem ? new TextDecoder().decode(xmpItem) : null, icc };
+}
+
+/** The pieces joined (null when there are none). */
+const joined = (parts: Uint8Array[] | null) => (parts && parts.length === 1 ? parts[0] : parts && concat(parts));
+
+const NONE: HeifMetadata = { exif: null, xmp: null, icc: null };
+
+/** The metadata of a whole HEIF file in memory. */
+export function heifMetadata(b: Uint8Array): HeifMetadata {
+  if (!isHeif(b)) return { ...NONE };
+  const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const meta = boxes(b, view, 0, b.length).find((x) => x.type === 'meta');
+  if (!meta) return { ...NONE };
+  const m = readMeta(b, meta, 0);
+  const bytes = (parts: Extents | null) => (parts && !parts.some(([o, l]) => o + l > b.length) ? parts.map(([o, l]) => b.subarray(o, o + l)) : null);
+  return decoded(joined(bytes(m.exif)), joined(bytes(m.xmp)), m.icc);
+}
+
+/** The metadata of a HEIF file, reading only what's needed of it: the top-level boxes' headers,
+ *  the `meta` box and the metadata items (a photo is megabytes, these some kilobytes). */
+export async function heifMetadataOf(file: Blob, start = new Uint8Array(0)): Promise<HeifMetadata> {
+  // `start`: the file's start, if already read.
+  const read = async (from: number, to: number) =>
+    Math.min(to, file.size) <= start.length ? start.slice(from, to) : new Uint8Array(await file.slice(from, Math.min(to, file.size)).arrayBuffer());
+  const first = await read(0, 32);
+  if (!isHeif(first)) return { ...NONE };
+  // The top-level boxes, by their headers only, until `meta`.
+  let i = 0;
+  let meta: { at: number; size: number } | null = null;
+  for (let n = 0; n < 64 && i + 8 <= file.size; n++) {
+    const h = await read(i, i + 16);
+    const v = new DataView(h.buffer);
+    let size = v.getUint32(0);
+    if (size === 1 && h.length >= 16) size = Number(v.getBigUint64(8));
+    else if (size === 0) size = file.size - i;
+    if (size < 8 || i + size > file.size) break;
+    if (fourcc(h, 4) === 'meta') {
+      meta = { at: i, size };
+      break;
+    }
+    i += size;
+  }
+  // A meta box over 16 MB isn't one a camera wrote: read the file as before.
+  if (!meta || meta.size > 16 << 20) return heifMetadata(await read(0, file.size));
+  const b = await read(meta.at, meta.at + meta.size);
+  const view = new DataView(b.buffer);
+  const box = boxes(b, view, 0, b.length)[0];
+  if (!box || box.type !== 'meta') return { ...NONE };
+  const m = readMeta(b, box, meta.at);
+  const bytes = async (parts: Extents | null) =>
+    parts && !parts.some(([o, l]) => o + l > file.size) ? Promise.all(parts.map(([o, l]) => read(o, o + l))) : null;
+  return decoded(joined(await bytes(m.exif)), joined(await bytes(m.xmp)), m.icc);
 }

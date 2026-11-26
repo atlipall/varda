@@ -1,6 +1,5 @@
 import type { RoadSeg, RouteReply } from '../routing/plan';
 import type { RoadClasses } from '../routing/roadClass';
-import type { Place } from '../search/places';
 
 export type { RouteReply };
 
@@ -201,17 +200,6 @@ export class TilePool {
     const live = this.live();
     if (!live.length) return Promise.reject(new Error('no workers available'));
     return this.call(live[live.length - 1], { type: 'elevations', coords }).then((msg) => msg.metres as Array<number | null>);
-  }
-
-  /** Builds the place list on the LAST live worker rather than the first: a simple way to keep
-   *  this one-off, comparatively expensive decode off the routing slot ((0,0) tiles and low zooms
-   *  hash to index 0) that's busiest with tile requests, so it doesn't starve tile serving. */
-  places(signal?: AbortSignal): Promise<{ places: Place[]; roads: RoadClasses }> {
-    if (this.disposed) return Promise.reject(new Error('pool disposed'));
-    const live = this.live();
-    if (!live.length) return Promise.reject(new Error('no workers available'));
-    const w = live[live.length - 1];
-    return this.call(w, { type: 'places' }, signal).then((msg) => ({ places: msg.places as Place[], roads: msg.roads as RoadClasses }));
   }
 
   /** Plans a route on the last worker (which keeps the road network after the first request). */

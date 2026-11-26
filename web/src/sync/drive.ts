@@ -1,4 +1,4 @@
-import { parseBackup, type Backup } from '../saved/backup';
+import { backupFrom, parseJson, type Backup } from '../saved/backup';
 import { mergeFiles } from './merge';
 import { DEV } from '../channel';
 
@@ -34,7 +34,13 @@ export interface SyncFile {
   unchanged?: boolean;
 }
 
-export async function readSyncFile(token: string, knownVersion: string | null = null): Promise<SyncFile> {
+/** `fill` completes a file's parsed JSON before it's read (the tracks' points, sync/trackFiles.ts). */
+export async function readSyncFile(token: string, knownVersion: string | null = null, fill: (raw: unknown) => Promise<void> = async () => {}): Promise<SyncFile> {
+  const read = async (fileId: string) => {
+    const raw = parseJson(await (await call(token, `${API}/files/${fileId}?alt=media`)).text());
+    await fill(raw);
+    return backupFrom(raw);
+  };
   const q = encodeURIComponent(`name='${SYNC_FILE}'`);
   const list = (await (await call(token, `${API}/files?spaces=appDataFolder&q=${q}&orderBy=createdTime&fields=files(id,version)`)).json()) as { files?: Array<{ id: string; version?: string }> };
   const files = list.files ?? [];
@@ -42,8 +48,8 @@ export async function readSyncFile(token: string, knownVersion: string | null = 
   const [first, ...rest] = files;
   const version = first.version ?? null;
   if (!rest.length && knownVersion && version === knownVersion) return { id: first.id, data: null, version, extra: [], unchanged: true };
-  let data = parseBackup(await (await call(token, `${API}/files/${first.id}?alt=media`)).text());
-  for (const f of rest) data = mergeFiles(data, parseBackup(await (await call(token, `${API}/files/${f.id}?alt=media`)).text()));
+  let data = await read(first.id);
+  for (const f of rest) data = mergeFiles(data, await read(f.id));
   return { id: first.id, data, version, extra: rest.map((f) => f.id) };
 }
 

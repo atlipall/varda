@@ -1,20 +1,25 @@
-import { isTownType, nearness } from './describe';
-import { normalize } from './normalize';
-import type { Place } from './places';
+import type { RoadClasses } from '../../src/routing/roadClass';
+import { distanceKm, isTownType, nearness, titleCase, type Town } from '../../src/search/describe';
+import { KINDS } from '../../src/search/placesCache';
+import { normalize } from '../../src/search/normalize';
+import type { Place } from '../../src/search/places';
 
 const KIND_RANK = { point: 0, polygon: 1, line: 2 } as const;
 const NEARBY_KM = 25;
 /** NEARBY_KM as a squared equirectangular distance in degrees (see `nearness`). */
 const NEARBY_DEG2 = (NEARBY_KM / 111.2) ** 2;
 
-/** Places are sorted once by (kind rank, normalized-name length, name); a search then scans in
+/** The search as main had it before placeStore.ts (the places and a normalized name per place,
+ *  on the page), kept as the reference the new one must match.
+ *
+ *  Places are sorted once by (kind rank, normalized-name length, name); a search then scans in
  *  that order, bucketing hits by match score, so within a score the hits come out already ranked
  *  and at most `limit` per score are kept. The result equals sorting every hit by (score, kind
  *  rank, length, name) — including ties, since both sorts are stable over the input order — but
  *  costs no per-query sort and stops early once `limit` exact-prefix hits are found.
  *  Kept small for big maps (Denmark has 617,000 places): a normalized name per place and the
  *  sorted order as numbers, no object or word list per place. */
-export class PlaceIndex {
+export class OldPlaceIndex {
   /** Normalized names, by the place's position in `places`. */
   private readonly norms: string[];
   /** Positions in `places`, in search order. */
@@ -75,3 +80,33 @@ export class PlaceIndex {
     return q.length >= 3 ? 2 : -1;
   }
 }
+
+/** The page's towns as they used to be found: every place scanned. */
+export const townsOf = (places: Place[]): Town[] =>
+  places.filter(isTownType).map((p) => ({ name: titleCase(p.name), lon: p.lon, lat: p.lat }));
+
+/** "Near X" for the nearest named point (a hut, a farm, a peak, a town) within `km` of `at`, for
+ *  naming a pin where no map feature is at hand. As it used to be, a scan of every place: the
+ *  reference NearIndex (nearIndex.ts) must match. */
+export function nearName(places: Place[], at: [number, number], km = 3): string | undefined {
+  let best: Place | null = null;
+  let bestKm = km;
+  for (const p of places) {
+    if (p.kind !== 'point' || /^[\d\s.,-]+$/.test(p.name)) continue;
+    const d = distanceKm(at, [p.lon, p.lat]);
+    if (d <= bestKm) [best, bestKm] = [p, d];
+  }
+  return best ? `Near ${titleCase(best.name.replace(/\s+\d+\s?m$/, ''))}` : undefined;
+}
+
+
+/** Compact on-disk form of a `Place` in older versions' places.json: [name, lon, lat, kindCode, type, what?]. */
+type PackedPlace = [string, number, number, number, number, string?];
+
+/** Encodes the on-disk `places.json` cache body: the map-file `key`, the places (packed), and the
+ *  F-road/track classes keyed by tile id and NET offset. */
+export function encodePlacesCache(key: string, places: Place[], roads: RoadClasses): string {
+  const packed: PackedPlace[] = places.map((p) => (p.what ? [p.name, p.lon, p.lat, KINDS.indexOf(p.kind), p.type, p.what] : [p.name, p.lon, p.lat, KINDS.indexOf(p.kind), p.type]));
+  return JSON.stringify({ key, v: 3, places: packed, roads });
+}
+

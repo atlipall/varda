@@ -1,12 +1,13 @@
 /// <reference lib="webworker" />
 import { HGT_SIZE_ERROR, hgtStep, onePerSquare, parseHgtName } from '../dem/hgt';
-import { encodeOverview, OverviewBuilder } from '../dem/overview';
+import { coversExactly, decodeOverview, encodeOverview, keptAfter, OverviewBuilder } from '../dem/overview';
 import { ImgError } from '../img/bytes';
 import { BlobSource } from '../img/source';
 import { storageRoot } from '../channel';
 import { GarminMap } from '../map/garminMap';
-import { canonicalHgtName, defaultSetName, parseChoices, parseSetJson, type Choices, type SetJson } from './library';
-import { CHOICES, currentDirName, DIR_PREFIX, isCompleteDir, isMapDir, isMissing, isSetDir, listEntries, parseMeta, POINTER, readTextFile as readText, SET_PREFIX, setDir, subdir, type StoredMeta } from './layout';
+import { encode, removeEntry, smallChange, updateChoices, writeAll, writeBytes, writeSmall } from './files';
+import { canonicalHgtName, defaultSetName, parseSetJson, type SetJson } from './library';
+import { DIR_PREFIX, isCompleteDir, isMapDir, isSetDir, listEntries, parseMeta, POINTER, readTextFile as readText, SET_PREFIX, setDir, subdir, type StoredMeta } from './layout';
 import { firstEntry } from './unzipStream';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -17,35 +18,6 @@ const SPACE_MARGIN = 1.1;
 
 const progress = (message: string) => self.postMessage({ type: 'progress', message });
 const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
-const encode = (o: unknown) => new TextEncoder().encode(typeof o === 'string' ? o : JSON.stringify(o));
-
-// The sync access handle's methods return promises on older Safari (pre-17) and plain values on
-// newer engines; awaiting is harmless on the latter and required on the former.
-async function writeBytes(dir: FileSystemDirectoryHandle, name: string, write: (h: FileSystemSyncAccessHandle) => Promise<void>): Promise<void> {
-  const handle = await (await dir.getFileHandle(name, { create: true })).createSyncAccessHandle();
-  try {
-    await handle.truncate(0);
-    await write(handle);
-    await handle.flush();
-  } finally {
-    await handle.close();
-  }
-}
-
-const writeAll = (dir: FileSystemDirectoryHandle, name: string, bytes: Uint8Array) => writeBytes(dir, name, async (h) => void (await h.write(bytes, { at: 0 })));
-
-/** Overwrites a small file with one write and then trims it, so it is never observed empty (a
- *  pointer or set.json must not be left blank by an interruption between truncate and write). */
-async function writeSmall(dir: FileSystemDirectoryHandle, name: string, bytes: Uint8Array): Promise<void> {
-  const handle = await (await dir.getFileHandle(name, { create: true })).createSyncAccessHandle();
-  try {
-    await handle.write(bytes, { at: 0 });
-    await handle.truncate(bytes.length);
-    await handle.flush();
-  } finally {
-    await handle.close();
-  }
-}
 
 async function checkSpace(needed: number): Promise<void> {
   const est = await navigator.storage?.estimate?.().catch(() => null);
@@ -59,27 +31,12 @@ async function checkSpace(needed: number): Promise<void> {
   }
 }
 
-async function removeEntry(dir: FileSystemDirectoryHandle, name: string, recursive = false): Promise<void> {
-  await dir.removeEntry(name, { recursive }).catch((err) => {
-    if (!isMissing(err)) console.warn('could not remove', name, err);
-  });
-}
-
 /** A fresh `<prefix><ts>` name not yet in the root. */
 async function freshName(root: FileSystemDirectoryHandle, prefix: string): Promise<string> {
   const existing = new Set((await listEntries(root)).map((e) => e.name));
   let name = `${prefix}${Date.now()}`;
   for (let i = 1; existing.has(name); i++) name = `${prefix}${Date.now()}-${i}`;
   return name;
-}
-
-// ---- the user's choices (maps.json) ----
-
-async function updateChoices(change: (c: Choices) => void): Promise<void> {
-  const root = await storageRoot();
-  const c = parseChoices(await readText(root, CHOICES));
-  change(c);
-  await writeSmall(root, CHOICES, encode(c));
 }
 
 // ---- elevation ----
@@ -104,9 +61,21 @@ function parseHgtFiles(hgt: File[]): Hgt[] {
   });
 }
 
+/** Starts `builder` from set `old`'s stored overview (of `oldFiles`); false when it's missing,
+ *  unreadable or of another area. The old overview is let go on return, before the copying. */
+async function seedFrom(builder: OverviewBuilder, dir: FileSystemDirectoryHandle, old: SetJson | null, oldFiles: Hgt[]): Promise<boolean> {
+  if (!old) return false;
+  try {
+    const before = decodeOverview(new Uint8Array(await (await (await dir.getFileHandle(old.overview)).getFile()).arrayBuffer()));
+    return coversExactly(before, oldFiles) && builder.seed(before);
+  } catch {
+    return false;
+  }
+}
+
 /** Writes elevation files into a set: a new one (`into` null) or an existing one, where a square it
- *  already has is replaced (the finer file wins; the new one on a tie). The set's overview is built
- *  again from all of its files. Nothing a map may be reading is overwritten: replaced squares and
+ *  already has is replaced (the finer file wins; the new one on a tie). The set's overview is made
+ *  anew: the old one with the written squares added in. Nothing a map may be reading is overwritten: replaced squares and
  *  the overview get new names, `set.json` (written last) switches to them, and the files it no
  *  longer lists are removed the next time files are added. Returns the set's id. */
 async function storeElevation(hgt: File[], into: string | null): Promise<string> {
@@ -133,11 +102,18 @@ async function storeElevation(hgt: File[], into: string | null): Promise<string>
   const builder = new OverviewBuilder(all);
   const writing = all.filter((h) => !storedName.has(h));
   await checkSpace(writing.reduce((n, h) => n + h.file.size, 0));
+  // Adding to a set: its overview already holds the squares kept, so only the new ones are read
+  // (not every old file again: over a GB for a set of fifty 1″ squares). Rebuilt from all the
+  // files when the old overview can't be used.
+  const seeded = await seedFrom(builder, dir, old, oldFiles);
+  const kept = new Set(seeded ? all.filter((h) => storedName.has(h)) : []);
+  const keeps = keptAfter(all, kept);
 
   try {
     const taken = new Set(old?.files ?? []);
     const stamp = Date.now();
     for (const [i, h] of all.entries()) {
+      if (kept.has(h)) continue;
       const bytes = new Uint8Array(await h.file.arrayBuffer());
       if (!storedName.has(h)) {
         const name = taken.has(h.name) ? h.name.replace(/\.hgt$/, `.${stamp}.hgt`) : h.name;
@@ -145,7 +121,7 @@ async function storeElevation(hgt: File[], into: string | null): Promise<string>
         storedName.set(h, name);
         progress(`Copying elevation ${writing.indexOf(h) + 1}/${writing.length}`);
       } else if (i % 4 === 0) progress('Reading elevation…');
-      builder.add(h.south, h.west, bytes, h.step);
+      builder.add(h.south, h.west, bytes, h.step, seeded ? keeps(h) : undefined);
     }
     const overview = old ? `overview.${stamp}.bin` : 'overview.bin';
     await writeAll(dir, overview, encodeOverview(builder.finish()));
@@ -292,47 +268,6 @@ async function removeLeftovers(root: FileSystemDirectoryHandle, keep: string): P
   }
 }
 
-/** Removes a map. If it's the current one, another map becomes current first (the newest), or the
- *  pointer goes when it was the last. A directory that also holds an elevation set (an older
- *  version's map) keeps the set. */
-async function removeMap(id: string): Promise<void> {
-  const root = await storageRoot();
-  if ((await currentDirName(root)) === id) {
-    const others = (await listEntries(root)).filter((e) => e.kind === 'directory' && e.name !== id && isMapDir(e.name)).map((e) => e.name);
-    const complete: string[] = [];
-    for (const o of others) if (await isCompleteDir(root, o)) complete.push(o);
-    complete.sort();
-    const next = complete.pop();
-    if (next) await writeSmall(root, POINTER, encode({ dir: next }));
-    else await removeEntry(root, POINTER);
-  }
-  const dir = await subdir(root, id);
-  if (!dir) return;
-  const dem = await subdir(dir, 'dem');
-  if (dem && parseSetJson(await readText(dem, 'set.json'))) {
-    for (const f of ['meta.json', 'map.img', 'places.json', 'dem-overview.bin']) await removeEntry(dir, f);
-  } else await removeEntry(root, id, true);
-  await updateChoices((c) => void delete c.maps[id]);
-}
-
-/** Removes an elevation set; maps that used it are drawn without hillshading. */
-async function removeSet(id: string): Promise<void> {
-  const root = await storageRoot();
-  const [top, sub] = id.split('/');
-  if (sub) {
-    const parent = await subdir(root, top);
-    if (parent) {
-      await removeEntry(parent, sub, true);
-      await removeEntry(parent, 'dem-overview.bin');
-      if (!(await isCompleteDir(root, top))) await removeEntry(root, top, true);
-    }
-  } else await removeEntry(root, id, true);
-  await updateChoices((c) => {
-    delete c.sets[id];
-    for (const m of Object.values(c.maps)) if (m.elevation === id) m.elevation = null;
-  });
-}
-
 /** Older versions stored a map's elevation with it (`dem/`, `dem-overview.bin`, the names in
  *  meta.json). Each such map's elevation becomes a set where it is: its overview copied into
  *  `dem/overview.bin`, then `dem/set.json`. Nothing large is moved. */
@@ -372,14 +307,6 @@ async function migrate(): Promise<void> {
   }
 }
 
-async function doWriteText(dirName: string | null, name: string, text: string): Promise<void> {
-  const root = await storageRoot();
-  if (dirName === null) return writeSmall(root, name, encode(text));
-  // No `create`: if the map directory vanished meanwhile, fail rather than resurrect it.
-  const dir = await root.getDirectoryHandle(dirName);
-  await writeAll(dir, name, encode(text));
-}
-
 self.onmessage = async (e: MessageEvent) => {
   const msg = e.data;
   try {
@@ -390,11 +317,8 @@ self.onmessage = async (e: MessageEvent) => {
     else if (msg.type === 'inspect') {
       const map = await GarminMap.open(new BlobSource(msg.img as File));
       result = { bounds: map.bounds, description: map.description };
-    } else if (msg.type === 'removeMap') await removeMap(msg.id as string);
-    else if (msg.type === 'removeSet') await removeSet(msg.id as string);
-    else if (msg.type === 'setCurrent') await writeSmall(await storageRoot(), POINTER, encode({ dir: msg.id as string }));
-    else if (msg.type === 'migrate') await migrate();
-    else if (msg.type === 'writeText') await doWriteText(msg.dir as string | null, msg.name as string, msg.text as string);
+    } else if (msg.type === 'migrate') await migrate();
+    else await smallChange(msg);
     self.postMessage({ type: 'done', result });
   } catch (err) {
     self.postMessage({ type: 'error', message: err instanceof Error ? err.message : String(err) });

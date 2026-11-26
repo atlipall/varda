@@ -264,7 +264,9 @@
       #map .maplibregl-ctrl-group { border-radius: 10px; box-shadow: 0 1px 6px #0003; }
       /* Your position: accuracy circle, direction cone (drawn pointing north, rotated by the marker), dot. */
       .you { width: 0; height: 0; }
-      .you-accuracy { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); border-radius: 50%; background: #1f7ae01f; border: 1px solid #1f7ae055; pointer-events: none; }
+      .you-accuracy { position: absolute; left: -50px; top: -50px; width: 100px; height: 100px; pointer-events: none; }
+      .you-accuracy svg { display: block; overflow: visible; }
+      .you-accuracy circle { fill: #1f7ae01f; stroke: #1f7ae055; }
       .you-cone { position: absolute; left: -40px; top: -80px; width: 80px; height: 80px; background: radial-gradient(circle at 50% 100%, #1f7ae0d9 0, #1f7ae066 45%, #1f7ae000 78%); clip-path: polygon(50% 100%, 12% 0, 88% 0); pointer-events: none; }
       .you-dot { position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%; background: #1f7ae0; border: 3px solid #fff; box-shadow: 0 1px 4px #0005; }
       #map .locate-button { display: grid; place-items: center; color: var(--ink); border-radius: inherit; }

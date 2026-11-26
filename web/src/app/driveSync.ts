@@ -1,13 +1,15 @@
-import { deleteTrack, listTracks, putTrack } from '../gpx/store';
+import { listTracks } from '../gpx/store';
 import { deletions, setDeletions } from '../saved/deleted';
-import { deleteSaved, listSaved, putSaved } from '../saved/saved';
+import { listSaved } from '../saved/saved';
 import { deleteSyncFile, DriveError, readSyncFile, writeSyncFile } from '../sync/drive';
 import { finishSignIn, freshToken, GOOGLE_CLIENT_ID, prepareSignIn, setSyncState, signedIn, signIn, signOut, startSignIn, syncState, validToken } from '../sync/google';
 import { AUTH_HELPER, HelperError, helperReachable } from '../sync/helper';
+import { applyPlan } from '../sync/apply';
+import { DOUBLE_WRITE, fillTracks, indexCurrent, withoutPoints, writeTrackFiles } from '../sync/trackFiles';
+import type { Backup } from '../saved/backup';
 import { planSync } from '../sync/merge';
-import { changedAt } from '../saved/backup';
 import { preview, THUMB } from '../photos/copy';
-import { deletePhoto, filesHere, getFiles, listPhotos, putFiles, putPhoto } from '../photos/photo';
+import { filesHere, getFiles, listPhotos, putFiles } from '../photos/photo';
 import { deletePhotoFile, downloadPhotoFile, listPhotoFiles, uploadPhotoFile } from '../sync/photoFiles';
 import { readSetting, writeSetting } from '../ui/settings';
 import { mb } from './photos';
@@ -139,44 +141,40 @@ export class DriveSync {
       const start = syncState();
       const localChange = start.changedAt;
       const dirty = localChange !== undefined && localChange !== start.syncedAt;
-      const file = await readSyncFile(token, dirty ? null : start.version ?? null);
+      const tracksHere = await listTracks();
+      const byId = new Map(tracksHere.map((t) => [t.id, t]));
+      const file = await readSyncFile(token, dirty ? null : start.version ?? null, (raw) => fillTracks(token, raw, (i) => byId.get(i)));
       if (file.unchanged) {
-        if (this.photosOn) await this.syncPictures(token);
+        // The pictures too, unless every one was already in place when the file had this version.
+        if (this.photosOn && syncState().picturesAt !== start.version && (await this.syncPictures(token))) setSyncState({ ...syncState(), picturesAt: start.version });
         setSyncState({ ...syncState(), lastSync: Date.now() });
         return this.render();
       }
       const photosOn = this.photosOn;
-      const plan = planSync({ saved: await listSaved(), tracks: await listTracks(), deleted: deletions(), photos: photosOn ? await listPhotos() : null }, file.data);
-      // Something edited or deleted here while this sync ran wins over what it brings in.
-      const nowSaved = new Map((await listSaved()).map((x) => [x.id, x]));
-      const nowTracks = new Map((await listTracks()).map((x) => [x.id, x]));
-      const goneNow = deletions();
-      const newer = <T extends { id: string; added: number; updated?: number }>(mine: T | undefined, theirs: T) =>
-        (!!mine && changedAt(mine) > changedAt(theirs)) || (goneNow[theirs.id] ?? -Infinity) >= changedAt(theirs);
-      const putSaved_ = plan.putSaved.filter((x) => !newer(nowSaved.get(x.id), x));
-      const putTracks_ = plan.putTracks.filter((x) => !newer(nowTracks.get(x.id), x));
-      for (const x of putSaved_) await putSaved(x);
-      for (const t of putTracks_) await putTrack(t);
-      for (const i of plan.removeSaved) await deleteSaved(i);
-      for (const i of plan.removeTracks) await deleteTrack(i);
-      const nowPhotos = new Map((await listPhotos()).map((x) => [x.id, x]));
-      const putPhotos_ = plan.putPhotos.filter((x) => !newer(nowPhotos.get(x.id), x));
-      for (const x of putPhotos_) await putPhoto(x);
-      for (const i of plan.removePhotos) await deletePhoto(i);
+      const plan = planSync({ saved: await listSaved(), tracks: tracksHere, deleted: deletions(), photos: photosOn ? await listPhotos() : null }, file.data);
+      // In one transaction; something edited or deleted here while this sync ran wins over what it brings in.
+      const kept = await applyPlan(plan, deletions());
       // Deletions made here meanwhile are kept: merge, don't overwrite.
       const gone = deletions();
       for (const [id, at] of Object.entries(plan.deleted)) gone[id] = Math.max(at, gone[id] ?? 0);
       setDeletions(gone);
       let { id, version } = file;
-      if (plan.upload) ({ id, version } = await writeSyncFile(token, id, plan.upload));
+      // Also written when only the track files' index is out of date (the file came from an older
+      // version of the app, which leaves the index out).
+      const upload = plan.upload ?? (file.data && !indexCurrent(file.data.tracks, file.data.trackFiles) ? { ...file.data, exported: new Date().toISOString() } : null);
+      if (upload) {
+        upload.trackFiles = await writeTrackFiles(token, upload.tracks, file.data?.trackFiles);
+        const body = DOUBLE_WRITE ? upload : ({ ...upload, tracks: upload.tracks.map(withoutPoints) } as unknown as Backup);
+        ({ id, version } = await writeSyncFile(token, id, body));
+      }
       for (const extra of file.extra) await deleteSyncFile(token, extra).catch(() => {});
-      if (putPhotos_.length || plan.removePhotos.length) await this.photos?.reload();
-      if (photosOn) await this.syncPictures(token);
+      if (plan.putPhotos.length > kept.photos || plan.removePhotos.length) await this.photos?.reload();
+      const pictures = photosOn && (await this.syncPictures(token));
       // A change here during the sync, or one not sent (kept over what came in): sync again.
-      const skipped = putSaved_.length !== plan.putSaved.length || putTracks_.length !== plan.putTracks.length || putPhotos_.length !== plan.putPhotos.length;
-      setSyncState({ ...syncState(), lastSync: Date.now(), fileId: id ?? undefined, version: version ?? undefined, syncedAt: skipped ? undefined : localChange });
+      const skipped = kept.saved + kept.tracks + kept.photos > 0;
+      setSyncState({ ...syncState(), lastSync: Date.now(), fileId: id ?? undefined, version: version ?? undefined, syncedAt: skipped ? undefined : localChange, picturesAt: pictures ? version ?? undefined : undefined });
       if (skipped || syncState().changedAt !== localChange) this.schedule();
-      if (putSaved_.length || putTracks_.length || plan.removeSaved.length || plan.removeTracks.length) await this.reload();
+      if (plan.putSaved.length > kept.saved || plan.putTracks.length > kept.tracks || plan.removeSaved.length || plan.removeTracks.length) await this.reload();
       this.retried = false;
       this.render();
     } catch (err) {
@@ -200,8 +198,9 @@ export class DriveSync {
   }
 
   /** The pictures of synced photos: those only here go up, those only in Drive come down (their
-   *  thumbnails made here), and those of deleted photos are removed from Drive. */
-  private async syncPictures(token: string): Promise<void> {
+   *  thumbnails made here), and those of deleted photos are removed from Drive. True when every
+   *  photo's picture is here afterwards (nothing to do again until the sync file changes). */
+  private async syncPictures(token: string): Promise<boolean> {
     const remote = await listPhotoFiles(token);
     const list = await listPhotos();
     const ids = new Set(list.map((p) => p.id));
@@ -220,14 +219,21 @@ export class DriveSync {
       if (f) await uploadPhotoFile(token, p.id, f.full);
     }
     const down = list.filter((p) => !here.has(p.id) && remote.has(p.id));
+    // A photo whose picture is neither here nor in Drive yet (still on its way up from another
+    // device): look again next time.
+    let complete = list.every((p) => here.has(p.id) || remote.has(p.id));
     for (const [i, p] of down.entries()) {
       this.render(`Downloading photos · ${i + 1} of ${down.length}`);
       const full = await downloadPhotoFile(token, remote.get(p.id)!);
       const thumb = await preview(full, THUMB);
-      if (!thumb) continue; // not a picture this browser can open: try again next time
+      if (!thumb) {
+        complete = false; // not a picture this browser can open: try again next time
+        continue;
+      }
       await putFiles({ id: p.id, full, thumb });
       this.photos?.arrived(p.id);
     }
+    return complete;
   }
 
   /** The "Sync photos too" switch: turning it on asks first when there's something to upload. */

@@ -13,6 +13,8 @@ export interface RoadLine {
    *  instructions); absent in synthetic test lines. */
   name?: string | null;
   type?: number;
+  /** Its bounds (west, south, east, north), when already known; else worked out on first use. */
+  box?: ArrayLike<number>;
 }
 
 /** Road lines that may come within `radiusM` metres of (x, y) (map units): those of every
@@ -37,7 +39,8 @@ export async function linesThrough(lines: RoadLines, x: number, y: number): Prom
 /** A line's bounds (map units: west, south, east, north), worked out once per line. */
 const boxes = new WeakMap<RoadLine, Float64Array>();
 
-function boxOf(line: RoadLine): Float64Array {
+function boxOf(line: RoadLine): ArrayLike<number> {
+  if (line.box) return line.box;
   let b = boxes.get(line);
   if (!b) {
     b = new Float64Array(coordsBounds(line.coords));

@@ -205,9 +205,10 @@ describe.skipIf(!hasRealData)('server on the real map', () => {
     expect(res.status).toBe(200);
     const bytes = new Uint8Array(await res.arrayBuffer());
     const tile = new VectorTile(new PbfReader(bytes));
-    const lines = tile.layers.lines;
-    expect(lines.length).toBeGreaterThan(50);
-    const geom = lines.feature(0).loadGeometry();
+    // A layer per line type: 0x06 is the residential streets.
+    const streets = tile.layers.l6;
+    expect(streets.length).toBeGreaterThan(50);
+    const geom = streets.feature(0).loadGeometry();
     expect(geom.length).toBeGreaterThan(0);
     expect(geom[0].length).toBeGreaterThan(1);
     const again = new Uint8Array(await (await fetch(`${base}/maps/${id}/tiles/${z}/${x}/${y}.pbf`)).arrayBuffer());
@@ -215,20 +216,20 @@ describe.skipIf(!hasRealData)('server on the real map', () => {
     expect((await fetch(`${base}/maps/${id}/tiles/15/${x * 4}/${y * 4}.pbf`)).status).toBe(404);
   });
 
-  test('terrain tiles are 256 px Terrain-RGB with Hekla at the right height', async () => {
+  test('terrain tiles are 512 px Terrain-RGB with Hekla at the right height', async () => {
     const z = 10;
     const lon = -19.6658;
     const lat = 63.9922;
     const res = await fetch(`${base}/maps/${id}/terrain/${z}/${lonToTileX(lon, z)}/${latToTileY(lat, z)}.png`);
     expect(res.headers.get('content-type')).toBe('image/png');
     const { width, height, rgba } = decodePng(new Uint8Array(await res.arrayBuffer()));
-    expect([width, height]).toEqual([256, 256]);
-    // A tile is 256 = 2^8 pixels across.
-    const px = lonToTileX(lon, z + 8) % 256;
-    const py = latToTileY(lat, z + 8) % 256;
+    expect([width, height]).toEqual([512, 512]);
+    // A tile is 512 = 2^9 pixels across.
+    const px = lonToTileX(lon, z + 9) % 512;
+    const py = latToTileY(lat, z + 9) % 512;
     let top = 0;
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
-      const i = ((py + dy) * 256 + px + dx) * 4;
+      const i = ((py + dy) * 512 + px + dx) * 4;
       top = Math.max(top, decodeTerrainRgb(rgba[i], rgba[i + 1], rgba[i + 2]));
     }
     expect(top).toBeGreaterThan(1300);

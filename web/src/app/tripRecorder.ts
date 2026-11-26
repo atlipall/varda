@@ -15,6 +15,12 @@ const NOTE_MS = 4000;
 const CONFIRM_MS = 3000;
 /** The trail drawn while recording keeps a point about this often (m). */
 const TRAIL_M = 10;
+/** While recording, the trail is stored at most this often (and when the page is hidden): a reload
+ *  loses at most this much of it, and three hours of trail aren't written out every second. */
+const STORE_MS = 30_000;
+/** The trail's newest points are redrawn on each fix; at this many they're folded into the rest,
+ *  which is only redrawn then (a long trail isn't sent to the map's worker every second). */
+const TAIL_POINTS = 60;
 /** Record asked and no answer from the app in this time: it can't record (an older app). */
 const CONFIRM_START_MS = 10_000;
 
@@ -89,6 +95,10 @@ export class TripRecorder implements maplibregl.IControl {
   private confirmTimer = 0;
   /** Waiting for the app to say it records. */
   private startTimer = 0;
+  /** The trail since it was last stored is still to store (`storeTimer` set). */
+  private storeTimer = 0;
+  /** Where the live tail starts in the trail (the points before it are in `trip-done`). */
+  private tailFrom = 0;
 
   constructor(private readonly deps: TripDeps) {
     this.container.className = 'maplibregl-ctrl maplibregl-ctrl-group trip-record';
@@ -106,13 +116,19 @@ export class TripRecorder implements maplibregl.IControl {
     $('trip-card').addEventListener('input', () => clearTimeout(this.autoTimer));
     $('trip-card').addEventListener('pointerdown', () => clearTimeout(this.autoTimer));
     window.addEventListener('hashchange', () => void this.receive(location.hash));
+    // Put away or reloaded: the trail so far is kept.
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && this.storeNow());
+    window.addEventListener('pagehide', () => this.storeNow());
   }
 
   onAdd(map: maplibregl.Map): HTMLElement {
     this.map = map;
-    if (!map.getSource('trip-live')) {
-      map.addSource('trip-live', { type: 'geojson', data: this.trailData() });
-      map.addLayer({ id: 'trip-live', type: 'line', source: 'trip-live', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#d32f2f', 'line-width': 4, 'line-opacity': 0.85 } });
+    // The way so far in two parts: `trip-done` redrawn now and then, `trip-live` (its newest
+    // points) on each fix.
+    for (const id of ['trip-done', 'trip-live']) {
+      if (map.getSource(id)) continue;
+      map.addSource(id, { type: 'geojson', data: line([]) });
+      map.addLayer({ id, type: 'line', source: id, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#d32f2f', 'line-width': 4, 'line-opacity': 0.85 } });
     }
     this.render();
     return this.container;
@@ -139,9 +155,23 @@ export class TripRecorder implements maplibregl.IControl {
       r.metres += d;
     }
     r.trail.push(at);
-    store(r);
-    this.renderTrail();
+    this.storeSoon();
+    if (r.trail.length - this.tailFrom > TAIL_POINTS) this.renderTrail();
+    else this.renderTail();
     this.renderPill();
+  }
+
+  /** Stores the recording within `STORE_MS`, unless that's already planned. */
+  private storeSoon(): void {
+    if (!this.storeTimer) this.storeTimer = window.setTimeout(() => this.storeNow(), STORE_MS);
+  }
+
+  /** Stores the recording (or its end) now; unless `always`, only if there's something new. */
+  private storeNow(always = false): void {
+    if (!always && !this.storeTimer) return;
+    clearTimeout(this.storeTimer);
+    this.storeTimer = 0;
+    store(this.rec);
   }
 
   /** Whether a trip is being recorded (for tests). */
@@ -163,7 +193,7 @@ export class TripRecorder implements maplibregl.IControl {
 
   private endRecording(): void {
     this.rec = null;
-    store(null);
+    this.storeNow(true);
     this.render();
   }
 
@@ -186,7 +216,7 @@ export class TripRecorder implements maplibregl.IControl {
     if (recording) {
       const start = Number(recording[1]);
       if (this.rec?.start !== start) this.rec = { start, metres: 0, trail: [] };
-      store(this.rec);
+      this.storeNow(true);
       this.render();
       return;
     }
@@ -285,12 +315,25 @@ export class TripRecorder implements maplibregl.IControl {
     $('trip-pill-text').textContent = `${(r.metres / 1000).toFixed(1)} km · ${time}`;
   }
 
-  private trailData(): GeoJSON.FeatureCollection {
-    const t = this.rec?.trail ?? [];
-    return { type: 'FeatureCollection', features: t.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: t } }] : [] };
+  private source(id: 'trip-done' | 'trip-live'): maplibregl.GeoJSONSource | undefined {
+    return this.map?.getSource(id) as maplibregl.GeoJSONSource | undefined;
   }
 
+  /** Draws the whole trail again: all but its last point as the done part, the tail starting there. */
   private renderTrail(): void {
-    (this.map?.getSource('trip-live') as maplibregl.GeoJSONSource | undefined)?.setData(this.trailData());
+    const t = this.rec?.trail ?? [];
+    this.tailFrom = Math.max(0, t.length - 1);
+    this.source('trip-done')?.setData(line(t));
+    this.renderTail();
+  }
+
+  /** Draws the trail's newest points (from where the done part ends). */
+  private renderTail(): void {
+    this.source('trip-live')?.setData(line((this.rec?.trail ?? []).slice(this.tailFrom)));
   }
 }
+
+const line = (t: Array<[number, number]>): GeoJSON.FeatureCollection => ({
+  type: 'FeatureCollection',
+  features: t.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: t } }] : [],
+});

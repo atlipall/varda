@@ -1,6 +1,7 @@
 import type * as maplibregl from 'maplibre-gl';
 import { addTrackLayers, nextColor, trackBounds, tracksGeoJson } from '../gpx/layers';
-import { parseGpx } from '../gpx/parse';
+/** Reading GPX files: loaded when one is first added. */
+const gpxReader = () => import('../gpx/parse');
 import { climb, formatStats, summarize } from '../gpx/stats';
 import { deleteTrack, listTracks, putTrack, type StoredTrack } from '../gpx/store';
 import { noteDeleted } from '../saved/deleted';
@@ -122,7 +123,7 @@ export class TracksPanel {
     let last: StoredTrack | null = null;
     for (const file of files) {
       try {
-        const gpx = parseGpx(await file.text());
+        const gpx = (await gpxReader()).parseGpx(await file.text());
         const track: StoredTrack = {
           id: newId(),
           name: gpx.name ?? gpx.lines.find((l) => l.name)?.name ?? file.name.replace(/\.gpx$/i, ''),

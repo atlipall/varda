@@ -112,7 +112,7 @@ try {
 
   // 3. search
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
-  const hit = await page.evaluate(() => window.__app.search('landmannalaugar')[0]);
+  const hit = await page.evaluate(async () => (await window.__app.search('landmannalaugar'))[0]);
   if (!hit || Math.abs(hit.lon + 19.06) > 0.1 || Math.abs(hit.lat - 63.99) > 0.1) fail(`search landmannalaugar → ${JSON.stringify(hit)}`);
   console.log('search ok:', hit.name, hit.lon.toFixed(3), hit.lat.toFixed(3));
   // The search bar: a magnifier that expands on tap and collapses when left empty.
@@ -401,9 +401,10 @@ try {
       return {
         rows: [...document.querySelectorAll('#maps-panel .overlay-row')].map((r) => `${r.querySelector('.n').textContent}: ${r.querySelector('.s').textContent}`),
         message: document.querySelector('#maps-panel .status').textContent,
-        features: m.getStyle().sources.overlays.data.features.length,
-        fillUnderNames: ids.indexOf('overlay-fill') < ids.indexOf(firstBaseSymbol),
-        pointsUnderTracks: ids.indexOf('overlay-point') < ids.indexOf('gpx-casing'),
+        // Each overlay has its own source (overlay:<id>) and layers (overlay-<kind>:<id>).
+        features: Object.entries(window.__app.map.getStyle().sources).filter(([k]) => k.startsWith('overlay:')).flatMap(([, s]) => s.data.features).length,
+        fillUnderNames: Math.max(...ids.flatMap((id, i) => (id.startsWith('overlay-fill:') ? [i] : []))) < ids.indexOf(firstBaseSymbol),
+        pointsUnderTracks: Math.max(...ids.flatMap((id, i) => (id.startsWith('overlay-point:') ? [i] : []))) < ids.indexOf('gpx-casing'),
       };
     });
     console.log('overlays:', ov.rows.join('; '), '|', ov.message);
@@ -422,8 +423,8 @@ try {
     await page.screenshot({ path: `${OUT}overlays-panel.png` });
     // A tap on the row hides an overlay's shapes at once and remembers it.
     await page.click('#maps-panel .overlay-row:nth-child(1) .row');
-    await page.waitForFunction((n) => window.__app.map.getStyle().sources.overlays.data.features.length < n, { timeout: 5_000 }, ov.features).catch(() => {});
-    const hidden = await page.evaluate(() => ({ features: window.__app.map.getStyle().sources.overlays.data.features.length, visible: window.__app.overlays.all.map((o) => o.visible), pressed: document.querySelector('#maps-panel .overlay-row .row').getAttribute('aria-pressed') }));
+    await page.waitForFunction((n) => Object.entries(window.__app.map.getStyle().sources).filter(([k]) => k.startsWith('overlay:')).flatMap(([, s]) => s.data.features).length < n, { timeout: 5_000 }, ov.features).catch(() => {});
+    const hidden = await page.evaluate(() => ({ features: Object.entries(window.__app.map.getStyle().sources).filter(([k]) => k.startsWith('overlay:')).flatMap(([, s]) => s.data.features).length, visible: window.__app.overlays.all.map((o) => o.visible), pressed: document.querySelector('#maps-panel .overlay-row .row').getAttribute('aria-pressed') }));
     if (hidden.features >= ov.features || hidden.visible[0] !== false || hidden.pressed !== 'false') fail(`hiding an overlay: ${JSON.stringify(hidden)}`);
     if (!(await page.$eval('#maps-apply', (b) => b.disabled).catch(() => true))) fail('hiding an overlay lit up Apply');
     // ⓘ → Show where it is: shown again, the panel closed and the map over it.
@@ -458,7 +459,7 @@ try {
       const th = await page.evaluate(() => ({
         row: document.querySelector('#maps-panel .overlay-row')?.innerText.replace(/\s+/g, ' '),
         message: document.querySelector('#maps-panel .status')?.textContent,
-        features: window.__app.map.getStyle().sources.overlays.data.features.length,
+        features: Object.entries(window.__app.map.getStyle().sources).filter(([k]) => k.startsWith('overlay:')).flatMap(([, s]) => s.data.features).length,
       }));
       console.log('Shapefile overlay:', th.row, '|', th.message, '|', th.features, 'features');
       if (!/TH 306 areas/.test(th.row) || th.features < 306) fail(`Shapefile overlay: ${JSON.stringify(th)}`);
@@ -512,7 +513,7 @@ try {
         .catch(async () => fail(`Get did not add the huts: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
       const huts = await page.evaluate(() => {
         const o = window.__app.overlays.all.find((x) => x.source?.ogc === 'f4x4:skalar');
-        const f = window.__app.map.getStyle().sources.overlays.data.features.filter((x) => x.properties.k === 'point');
+        const f = (window.__app.map.getStyle().sources[`overlay:${o?.id}`]?.data.features ?? []).filter((x) => x.properties.k === 'point');
         return { name: o?.name, visible: o?.visible, points: f.length, lon: f[0]?.geometry.coordinates[0] };
       });
       if (huts.name !== 'Mountain huts' || !huts.visible || huts.points !== 7 || !(huts.lon < -14 && huts.lon > -20)) fail(`huts overlay: ${JSON.stringify(huts)}`);
@@ -1331,7 +1332,7 @@ try {
   // and the helper answered here; signing in starts as the return from Google's page, with a code).
   // Needs a build with VITE_GOOGLE_CLIENT_ID set.
   if (await page.$eval('#sync', (e) => e.hidden)) fail('no Google Drive sync section (build with VITE_GOOGLE_CLIENT_ID=e2e)');
-  const fakeDrive = { file: null, status: 200, photos: new Map(), deletedPhotos: [] };
+  const fakeDrive = { file: null, status: 200, photos: new Map(), deletedPhotos: [], tracks: new Map() };
   const remotePin = { id: 'remote-1', kind: 'pin', name: 'Remote hut', added: 1, lon: -19.3, lat: 64.2 };
   const remoteTrack = { id: 'remote-t', name: 'Remote track', color: '#0891b2', visible: true, added: 2, stats: { distance: 1200, climb: 30, duration: null }, gpx: { name: 'Remote track', lines: [{ kind: 'track', name: 'Remote track', points: [{ lon: -19.1, lat: 63.99, ele: 600, time: null }, { lon: -19.09, lat: 64.0, ele: 630, time: null }] }], waypoints: [] } };
   fakeDrive.file = JSON.stringify({ app: 'garmin-map', kind: 'backup', version: 1, exported: new Date().toISOString(), saved: [remotePin], tracks: [remoteTrack], deleted: {} });
@@ -1354,6 +1355,23 @@ try {
     if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: cors });
     if (fakeDrive.status !== 200) return req.respond({ status: fakeDrive.status, headers: cors, body: '' });
     const json = (o) => req.respond({ status: 200, headers: cors, contentType: 'application/json', body: JSON.stringify(o) });
+    // Tracks' points: files of their own (t-…), listed by name with their points key.
+    if (req.method() === 'GET' && url.pathname === '/drive/v3/files' && (url.searchParams.get('q') ?? '').includes('garmin-map-track-')) return json({ files: [...fakeDrive.tracks].map(([id, f]) => ({ id, name: f.name, appProperties: { points: f.points } })) });
+    const trackId = url.pathname.match(/\/files\/(t-[\w-]+)$/)?.[1];
+    const trackUpload = req.method() === 'POST' && url.pathname === '/upload/drive/v3/files' && (req.postData() ?? '').includes('"name":"garmin-map-track-');
+    if (trackId || trackUpload) {
+      if (req.method() === 'DELETE') {
+        fakeDrive.tracks.delete(trackId);
+        return req.respond({ status: 204, headers: cors, body: '' });
+      }
+      if (req.method() === 'GET') return fakeDrive.tracks.has(trackId) ? req.respond({ status: 200, headers: cors, contentType: 'application/json', body: fakeDrive.tracks.get(trackId).body }) : req.respond({ status: 404, headers: cors, body: '' });
+      const [meta, body] = req.postData().split(/--garmin-map-[a-z0-9]+/).filter((p) => p.includes('\r\n\r\n')).map((p) => p.slice(p.indexOf('\r\n\r\n') + 4).trim());
+      const m = JSON.parse(meta);
+      const id = trackId ?? `t-${fakeDrive.tracks.size + 1}-${Date.now()}`;
+      if (trackId && !fakeDrive.tracks.has(trackId)) return req.respond({ status: 404, headers: cors, body: '' });
+      fakeDrive.tracks.set(id, { name: m.name ?? fakeDrive.tracks.get(id).name, points: m.appProperties.points, body });
+      return json({ id });
+    }
     // Photo pictures: files of their own, listed by name.
     if (req.method() === 'GET' && url.pathname === '/drive/v3/files' && (url.searchParams.get('q') ?? '').includes('garmin-map-photo-')) return json({ files: [...fakeDrive.photos].map(([name, f]) => ({ id: f.id, name })) });
     const photoId = url.pathname.match(/^\/drive\/v3\/files\/(p-[\w-]+)$/)?.[1];
@@ -1425,6 +1443,21 @@ try {
   const trackSync = await page.evaluate(() => ({ count: window.__app.tracks.count, names: [...document.querySelectorAll('#track-list .name')].map((e) => e.textContent), drawn: window.__app.map.getStyle().sources.gpx.data.features.length }));
   if (trackSync.count !== tracksBefore + 1 || !trackSync.names.includes('Remote track') || !trackSync.drawn) fail(`track from another device: ${JSON.stringify(trackSync)} (had ${tracksBefore})`);
   if (sync.count !== 3 || !sync.names.includes('Remote hut') || !/^Synced with Google Drive at \d\d:\d\d\. You stay signed in on this device\.$/.test(sync.text) || remote().saved.length !== 3 || remote().tracks.length !== tracksBefore + 1) fail(`first sync: ${JSON.stringify(sync)} drive has ${remote().saved.length} saved, ${remote().tracks.length} tracks`);
+  // Each track's points went up as a file of its own, named in the sync file's index; the sync
+  // file still carries the points too, for older versions of the app.
+  const index = remote().trackFiles ?? {};
+  if (fakeDrive.tracks.size !== tracksBefore + 1 || remote().tracks.some((t) => !index[t.id] || !fakeDrive.tracks.has(index[t.id].file) || !t.gpx)) fail(`track files: ${fakeDrive.tracks.size} files, index ${JSON.stringify(index)}`);
+  // A track from a device that writes the points only to its file: it comes down with them.
+  const lightTrack = { id: 'light-t', name: 'Light track', color: '#0891b2', visible: true, added: 3, stats: { distance: 900, climb: null, duration: null } };
+  const lightPoints = { name: 'Light track', lines: [{ kind: 'track', name: 'Light track', points: [{ lon: -19.2, lat: 64.05, ele: null, time: null }, { lon: -19.19, lat: 64.06, ele: null, time: null }] }], waypoints: [] };
+  fakeDrive.tracks.set('t-light', { name: 'garmin-map-track-light-t.json', points: 'other-device', body: JSON.stringify({ app: 'garmin-map', kind: 'track-points', version: 1, id: 'light-t', gpx: lightPoints }) });
+  const withLight = remote();
+  withLight.tracks.push(lightTrack);
+  withLight.trackFiles = { ...withLight.trackFiles, 'light-t': { file: 't-light', points: 'other-device', at: 3 } };
+  fakeDrive.file = JSON.stringify(withLight);
+  await page.evaluate(() => window.__app.sync.syncNow());
+  await page.waitForFunction(() => window.__app.tracks.all.some((t) => t.id === 'light-t' && t.gpx.lines[0].points.length === 2), { timeout: 10_000 }).catch(() => fail('a track whose points are only in its file did not come'));
+  if (!remote().tracks.some((t) => t.id === 'light-t' && t.gpx)) fail('the light track was not written back with its points for older versions');
   // A deletion here reaches Drive (a few seconds after the change).
   const hutRow = await page.$$eval('#saved-list li', (lis) => lis.findIndex((li) => li.querySelector('.name').textContent === 'Remote hut') + 1);
   await page.click(`#saved-list li:nth-child(${hutRow}) .track-delete`);
@@ -1523,13 +1556,16 @@ try {
   if (await page.$eval('#sync-connect', (e) => e.textContent) !== 'Sync with Google Drive') fail('Stop syncing did not turn sync off');
   page.off('request', onRequest);
   await page.setRequestInterception(false);
-  // Leave the device as before the sync: delete the track that came from "another device".
+  // Leave the device as before the sync: delete the tracks that came from "another device".
   if (await page.$eval('#saved', (e) => !e.hidden)) await page.click('#saved-close');
   await page.click('#menu-button');
   await page.click('#tracks-open');
-  const remoteRow = await page.$$eval('#track-list li', (lis) => lis.findIndex((li) => li.querySelector('.name').textContent === 'Remote track') + 1);
-  await page.click(`#track-list li:nth-child(${remoteRow}) .track-delete`);
-  await page.click(`#track-list li:nth-child(${remoteRow}) .track-delete`);
+  for (const name of ['Remote track', 'Light track']) {
+    const remoteRow = await page.$$eval('#track-list li', (lis, n) => lis.findIndex((li) => li.querySelector('.name').textContent === n) + 1, name);
+    await page.click(`#track-list li:nth-child(${remoteRow}) .track-delete`);
+    await page.click(`#track-list li:nth-child(${remoteRow}) .track-delete`);
+    await page.waitForFunction((n) => ![...document.querySelectorAll('#track-list .name')].some((e) => e.textContent === n), { timeout: 5_000 }, name);
+  }
   await page.waitForFunction((n) => window.__app.tracks.count === n, { timeout: 5_000 }, tracksBefore);
   await page.click('#tracks-close');
   console.log('drive sync ok');
@@ -1611,7 +1647,7 @@ try {
   console.log('OPFS with two maps:', JSON.stringify(two));
   if (mapDirs(two).length !== 2 || setDirs(two).length !== 1 || two.pointer.dir !== before.pointer.dir) fail(`expected two maps and one set, the first still current: ${JSON.stringify(two)}`);
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
-  if (!(await page.evaluate(() => window.__app.search('landmannalaugar').length > 0))) fail('search found nothing after adding a map');
+  if (!(await page.evaluate(async () => (await window.__app.search('landmannalaugar')).length > 0))) fail('search found nothing after adding a map');
   // Apply shows it in place, with the stored set (it covers the map).
   const g0 = await tileGen();
   await apply();
@@ -1646,7 +1682,7 @@ try {
   if ((await opfs()).pointer.dir !== before.pointer.dir) fail('switching did not make the map current');
   await page.screenshot({ path: `${OUT}maps-switched.png` });
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
-  if (!(await page.evaluate(() => window.__app.search('landmannalaugar').length > 0))) fail('search found nothing after switching');
+  if (!(await page.evaluate(async () => (await window.__app.search('landmannalaugar')).length > 0))) fail('search found nothing after switching');
   // And back; ✕ throws away a tick.
   await page.click('#maps-button');
   await page.waitForSelector('#maps-panel:not([hidden]) .map-row', { timeout: 10_000 });
@@ -1704,7 +1740,7 @@ try {
 
   // 8. An older version's layout: one map in `garmin/` (no pointer) with its elevation inside
   //    (dem/, dem-overview.bin, the names in meta.json). It opens with its hillshading, which
-  //    becomes a set where it is. Let the viewer finish its place index first (it writes places.json).
+  //    becomes a set where it is. Let the viewer finish its place index first (it writes places.bin).
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
   await page.evaluate(async (dir, set) => {
     const root = await navigator.storage.getDirectory();

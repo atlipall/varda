@@ -136,11 +136,10 @@ const u16 = (n: number) => Uint8Array.of(n >> 8, n & 255);
 const u32 = (n: number) => Uint8Array.of(n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255);
 
 /** A HEIC holding EXIF, XMP and (as the primary item's property) an ICC profile. */
-export function heic(exif: Uint8Array, xmp: string, profile: Uint8Array): Uint8Array {
+export function heic(exif: Uint8Array, xmp: string, profile: Uint8Array, picture = Uint8Array.of(9, 9, 9, 9)): Uint8Array {
   const ftyp = box('ftyp', ascii('heic'), u32(0), ascii('mif1heic'));
   const exifItem = concat([u32(6), ascii('Exif\0\0'), exif]);
   const xmpItem = ascii(xmp);
-  const picture = Uint8Array.of(9, 9, 9, 9);
   const mdatHead = 8;
   const mdat = box('mdat', picture, exifItem, xmpItem);
   const at = ftyp.length + mdatHead;

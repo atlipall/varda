@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { decodeSubdivision } from '../src/img/rgn';
 import type { Subdivision } from '../src/img/tre';
 import { GarminMap, type MapTile } from '../src/map/garminMap';
 import { NodeIndex, type RoadGraph } from '../src/routing/graph';
@@ -38,8 +37,8 @@ describe.skipIf(!existsSync(FZK_DENMARK))('routing on a big map (Freizeitkarte D
   });
 
   test('Copenhagen → Aarhus: about 300 km, 2.5-3 h, drawn along the roads', async () => {
-    const cache = new SubdivisionCache(750_000);
-    const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, async () => decodeSubdivision(await map.readSubdivision(tile, sd), sd, { sections: 0, badSections: 0 }));
+    const cache = new SubdivisionCache();
+    const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => map.decode(tile, sd));
     const lines = roadLineSource(map, decode, roads);
     const r = await planRoute(graph, index, lines, [12.568, 55.676], [10.203, 56.162], true, (route) => routeShape(graph, index, route, lines));
     if (r.status !== 'ok') throw new Error(`expected ok, got ${r.status}`);
