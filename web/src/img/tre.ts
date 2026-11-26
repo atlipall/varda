@@ -6,12 +6,6 @@ export const KIND_LINES = 0x40;
 export const KIND_POLYGONS = 0x80;
 
 export type Range = [number, number];
-const _EMPTY_EXT = [
-  Object.freeze([0, 0] as Range),
-  Object.freeze([0, 0] as Range),
-  Object.freeze([0, 0] as Range),
-] as const;
-export const EMPTY_EXT = Object.freeze(_EMPTY_EXT) as [Range, Range, Range];
 
 export interface Level {
   number: number;
@@ -30,8 +24,26 @@ export interface Subdivision {
   halfHeight: number;
   rgnStart: number;
   rgnEnd: number;
-  ext: [Range, Range, Range];
+  /** The extended (type 0x10000+) sections' byte ranges in RGN, [start, end): polygons, lines,
+   *  points. Plain fields rather than arrays: a big map has over 100,000 subdivisions, and four
+   *  small arrays each cost more than the rest of the subdivision. */
+  extPolygonStart: number;
+  extPolygonEnd: number;
+  extLineStart: number;
+  extLineEnd: number;
+  extPointStart: number;
+  extPointEnd: number;
 }
+
+/** The extended sections' fields from their ranges (polygons, lines, points). */
+export function extFields([[pgA, pgE], [lnA, lnE], [ptA, ptE]]: readonly [Range, Range, Range]) {
+  return { extPolygonStart: pgA, extPolygonEnd: pgE, extLineStart: lnA, extLineEnd: lnE, extPointStart: ptA, extPointEnd: ptE };
+}
+
+/** The extended sections' ranges: polygons, lines, points. */
+export const extRanges = (sd: Subdivision): [Range, Range, Range] =>
+  [[sd.extPolygonStart, sd.extPolygonEnd], [sd.extLineStart, sd.extLineEnd], [sd.extPointStart, sd.extPointEnd]];
+
 
 export interface Tre {
   north: number;
@@ -44,7 +56,8 @@ export interface Tre {
 
 export const shiftOf = (sd: Subdivision): number => 24 - sd.level.bits;
 
-export const hasData = (sd: Subdivision): boolean => sd.kinds !== 0 || sd.ext.some(([a, e]) => e > a);
+export const hasData = (sd: Subdivision): boolean =>
+  sd.kinds !== 0 || sd.extPolygonEnd > sd.extPolygonStart || sd.extLineEnd > sd.extLineStart || sd.extPointEnd > sd.extPointStart;
 
 /** [west, south, east, north] in Garmin map units. */
 export function subdivisionBounds(sd: Subdivision): [number, number, number, number] {
@@ -84,7 +97,8 @@ export function parseTre(tre: Uint8Array, rgn: Uint8Array): Tre {
       subs.push({
         index: subs.length, level, kinds: u8(tre, p + 3), cx: s24(tre, p + 4), cy: s24(tre, p + 7),
         halfWidth: u16(tre, p + 10) & 0x7fff, halfHeight: u16(tre, p + 12),
-        rgnStart: rgnOff + r, rgnEnd: 0, ext: EMPTY_EXT,
+        rgnStart: rgnOff + r, rgnEnd: 0,
+        extPolygonStart: 0, extPolygonEnd: 0, extLineStart: 0, extLineEnd: 0, extPointStart: 0, extPointEnd: 0,
       });
       p += rec;
     }
@@ -113,11 +127,11 @@ function attachExt(tre: Uint8Array, rgn: Uint8Array, hlen: number, subs: Subdivi
     records.push([u32(tre, o), u32(tre, o + 4), rec >= 13 ? u32(tre, o + 8) : 0]);
   }
   subs.slice(0, records.length).forEach((sd, i) => {
-    sd.ext = sections.map(([sectOff, sectLen], k) => {
+    Object.assign(sd, extFields(sections.map(([sectOff, sectLen], k) => {
       let start = records[i][k];
       let end = i + 1 < records.length ? records[i + 1][k] : sectLen;
       if (k === 2 && rec < 13) start = end = 0;
       return [sectOff + start, sectOff + end];
-    }) as [Range, Range, Range];
+    }) as [Range, Range, Range]));
   });
 }

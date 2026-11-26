@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import { ImgContainer } from '../src/img/container';
 import { decodeSubdivision, type Chunk, type DecodeStats } from '../src/img/rgn';
-import { EMPTY_EXT, KIND_LINES, KIND_POINTS, parseTre, type Range, type Subdivision } from '../src/img/tre';
+import { extFields, KIND_LINES, KIND_POINTS, parseTre, type Range, type Subdivision } from '../src/img/tre';
 import { nodeSource } from './helpers/nodeSource';
 import { DETAILED, hasRealData } from './helpers/paths';
 
 const LEVEL24 = { number: 0, bits: 24, inherited: false, count: 1 };
-const sub = (start: number, end: number, kinds: number, ext: [Range, Range, Range] = EMPTY_EXT): Subdivision => ({
-  index: 0, level: LEVEL24, kinds, cx: 1000, cy: 2000, halfWidth: 0, halfHeight: 0, rgnStart: start, rgnEnd: end, ext,
+const sub = (start: number, end: number, kinds: number, ext: [Range, Range, Range] = [[0, 0], [0, 0], [0, 0]]): Subdivision => ({
+  index: 0, level: LEVEL24, kinds, cx: 1000, cy: 2000, halfWidth: 0, halfHeight: 0, rgnStart: start, rgnEnd: end, ...extFields(ext),
 });
 const whole = (bytes: number[] | Uint8Array) => {
   const c: Chunk = { bytes: Uint8Array.from(bytes), base: 0 };

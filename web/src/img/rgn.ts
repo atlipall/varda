@@ -1,6 +1,6 @@
 import { decodeDeltas } from './bitstream';
 import { s16, u16, u24, u8 } from './bytes';
-import { KIND_IDX_POINTS, KIND_LINES, KIND_POINTS, KIND_POLYGONS, shiftOf, type Subdivision } from './tre';
+import { extRanges, KIND_IDX_POINTS, KIND_LINES, KIND_POINTS, KIND_POLYGONS, shiftOf, type Subdivision } from './tre';
 
 export interface Chunk {
   bytes: Uint8Array;
@@ -187,7 +187,7 @@ export function decodeSubdivision(bytes: SubdivisionBytes, sd: Subdivision, stat
       });
     }
   }
-  const [[pgA, pgE], [lnA, lnE], [ptA, ptE]] = sd.ext;
+  const [[pgA, pgE], [lnA, lnE], [ptA, ptE]] = extRanges(sd);
   if (pgE > pgA) run(stats, out, pgA, pgE, (o) => poly2(bytes.ext[0], o, sd, false));
   if (lnE > lnA) run(stats, out, lnA, lnE, (o) => poly2(bytes.ext[1], o, sd, true));
   if (ptE > ptA) run(stats, out, ptA, ptE, (o) => point2(bytes.ext[2], o, sd));

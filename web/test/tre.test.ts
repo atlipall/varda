@@ -1,18 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import { ImgContainer } from '../src/img/container';
-import { EMPTY_EXT, KIND_LINES, KIND_POINTS, parseTre, shiftOf, subdivisionBounds } from '../src/img/tre';
+import { extRanges, KIND_LINES, KIND_POINTS, parseTre, shiftOf, subdivisionBounds } from '../src/img/tre';
 import { makeRgnHeader, makeTre } from './helpers/builders';
 import { nodeSource } from './helpers/nodeSource';
 import { DETAILED, hasRealData } from './helpers/paths';
 
 const LEVELS: Array<[number, number, boolean, number]> = [[1, 22, false, 1], [0, 24, false, 2]];
-
-describe('EMPTY_EXT', () => {
-  test('is deeply frozen', () => {
-    expect(Object.isFrozen(EMPTY_EXT)).toBe(true);
-    expect(Object.isFrozen(EMPTY_EXT[0])).toBe(true);
-  });
-});
 
 describe('parseTre', () => {
   test('levels, subdivisions and bounds', () => {
@@ -35,9 +28,9 @@ describe('parseTre', () => {
   test('ext offsets', () => {
     const tre = makeTre(LEVELS, [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], [[0, 0, 0], [20, 0, 0], [20, 0, 12], [60, 0, 12]]);
     const s = parseTre(tre, makeRgnHeader(10, [[500, 60], [600, 0], [700, 12]])).subdivisions;
-    expect(s[0].ext).toEqual([[500, 520], [600, 600], [700, 700]]);
-    expect(s[1].ext).toEqual([[520, 520], [600, 600], [700, 712]]);
-    expect(s[2].ext).toEqual([[520, 560], [600, 600], [712, 712]]);
+    expect(extRanges(s[0])).toEqual([[500, 520], [600, 600], [700, 700]]);
+    expect(extRanges(s[1])).toEqual([[520, 520], [600, 600], [700, 712]]);
+    expect(extRanges(s[2])).toEqual([[520, 560], [600, 600], [712, 712]]);
   });
 
   test('locked TRE is rejected', () => {

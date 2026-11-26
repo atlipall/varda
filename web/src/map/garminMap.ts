@@ -3,7 +3,7 @@ import { ImgContainer } from '../img/container';
 import { LabelTable } from '../img/lbl';
 import type { Chunk, RawObject, SubdivisionBytes } from '../img/rgn';
 import type { ByteSource } from '../img/source';
-import { hasData, parseTre, type Subdivision, type Tre } from '../img/tre';
+import { extRanges, hasData, parseTre, type Subdivision, type Tre } from '../img/tre';
 import { conventionsFor, type MapConventions } from './conventions';
 import { CONTOUR_LINE_TYPES, contourLabel, EARLY_ROADS_ZOOM, ROADS_LEVEL_ZOOM, zoomBands } from './zoom';
 
@@ -101,7 +101,7 @@ export class GarminMap {
   async readSubdivision(tile: MapTile, sd: Subdivision): Promise<SubdivisionBytes> {
     const rgn = `${tile.id}.RGN`;
     const chunk = async (a: number, e: number): Promise<Chunk> => ({ bytes: e > a ? await this.img.read(rgn, a, e - a) : new Uint8Array(0), base: a });
-    const [main, pg, ln, pt] = await Promise.all([chunk(sd.rgnStart, sd.rgnEnd), ...sd.ext.map(([a, e]) => chunk(a, e))]);
+    const [main, pg, ln, pt] = await Promise.all([chunk(sd.rgnStart, sd.rgnEnd), ...extRanges(sd).map(([a, e]) => chunk(a, e))]);
     return { main, ext: [pg, ln, pt] };
   }
 
