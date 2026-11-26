@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import { cluster } from '../src/photos/cluster';
 import { cameraText, exifForCopy, readExif } from '../src/photos/exif';
-import { heifMetadata, isHeif } from '../src/photos/heif';
+import { heifMetadata, heifMetadataOf, isHeif } from '../src/photos/heif';
 import { exifOf, iccOf, iccSegments, metadataSegments, readSegments, withSegments, xmpOf, xmpSegment, exifSegment, ICC_ID } from '../src/photos/jpeg';
-import { iccName } from '../src/photos/copy';
+import { iccName, inspect } from '../src/photos/copy';
 import { byTime, dayText, isPhoto, takenText, type Photo } from '../src/photos/photo';
 import { descriptionOf, withDescription } from '../src/photos/xmp';
 import { ascii, concat, heic, icc, iphoneExif, jpeg, tiff } from './helpers/photoBytes';
@@ -123,6 +123,54 @@ describe('HEIC metadata', () => {
 
   test('not a HEIC: nothing', () => {
     expect(heifMetadata(jpeg([]))).toEqual({ exif: null, xmp: null, icc: null });
+  });
+});
+
+/** A file that counts the bytes read from it. */
+function counted(bytes: Uint8Array, name: string) {
+  const seen = { bytes: 0 };
+  class Counted extends File {
+    override slice(a?: number, b?: number, type?: string): Blob {
+      const s = super.slice(a, b, type);
+      seen.bytes += s.size;
+      return s;
+    }
+    override arrayBuffer(): Promise<ArrayBuffer> {
+      seen.bytes += this.size;
+      return super.arrayBuffer();
+    }
+  }
+  return { f: new Counted([bytes as BlobPart], name), seen };
+}
+
+describe('reading a photo’s metadata without the whole file', () => {
+  const xmp = '<x:xmpmeta><rdf:RDF><rdf:Description rdf:about=""><dc:description><rdf:Alt><rdf:li xml:lang="x-default">Hot spring</rdf:li></rdf:Alt></dc:description></rdf:Description></rdf:RDF></x:xmpmeta>';
+  const picture = new Uint8Array(3_000_000).fill(7);
+
+  test('a JPEG: the segments before the picture data, also when they run past the first read', async () => {
+    const big = Array.from({ length: 6 }, (_, i) => [0xe3 + i, new Uint8Array(60_000).fill(i)] as [number, Uint8Array]);
+    for (const segs of [[] as Array<[number, Uint8Array]>, big]) {
+      const bytes = jpeg([[0xe1, exifSegment(iphoneExif()).data], [0xe1, xmpSegment(xmp).data], ...segs], picture);
+      const { f, seen } = counted(bytes, 'IMG_1.jpg');
+      const x = await inspect(f);
+      expect(x.info?.lat).toBeCloseTo(63.990908, 5);
+      expect(x.description).toBe('Hot spring');
+      expect(x.segments).toHaveLength(2 + segs.length);
+      expect(seen.bytes).toBeLessThan(bytes.length / 2);
+    }
+  });
+
+  test('a HEIC: the same as from the whole file, the picture data skipped', async () => {
+    for (const bytes of [heic(iphoneExif(), xmp, icc('Display P3')), heic(iphoneExif(), xmp, icc('Display P3'), picture)]) {
+      const whole = heifMetadata(bytes);
+      expect(whole.exif).not.toBeNull();
+      const { f, seen } = counted(bytes, 'IMG_1.HEIC');
+      expect(await heifMetadataOf(f)).toEqual(whole);
+      if (bytes.length > 1e6) expect(seen.bytes).toBeLessThan(10_000);
+      const x = await inspect(f);
+      expect(x.info?.lat).toBeCloseTo(63.990908, 5);
+      expect(x.description).toBe('Hot spring');
+    }
   });
 });
 

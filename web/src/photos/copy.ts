@@ -1,5 +1,5 @@
 import { readExif, exifForCopy, cameraText, type ExifInfo } from './exif';
-import { heifMetadata, isHeif } from './heif';
+import { heifMetadataOf, isHeif } from './heif';
 import { exifOf, exifSegment, iccOf, iccSegments, isJpeg, metadataSegments, withSegments, xmpOf, xmpSegment, ICC_ID, startsWith, type Segment } from './jpeg';
 import { descriptionOf } from './xmp';
 
@@ -21,17 +21,30 @@ export interface Inspected {
   description: string | null;
 }
 
-export async function inspect(file: File): Promise<Inspected> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let segments: Segment[] = [];
-  if (isJpeg(bytes)) {
+/** How much of a JPEG is read first for its metadata (the segments before the picture data):
+ *  an iPhone's are about 40-70 KB, a camera's with a big preview more; read further when needed. */
+const JPEG_HEAD = 256 * 1024;
+
+/** A JPEG's metadata segments, reading only as much of the file as they take. */
+async function jpegSegments(file: Blob, head: Uint8Array): Promise<Segment[]> {
+  for (let bytes = head; ; ) {
     try {
-      segments = metadataSegments(bytes);
+      return metadataSegments(bytes);
     } catch {
-      segments = [];
+      // Cut short by the read (or damaged): read four times as much, up to all of it.
+      if (bytes.length >= file.size) return [];
+      bytes = new Uint8Array(await file.slice(0, Math.min(file.size, bytes.length * 4)).arrayBuffer());
     }
-  } else if (isHeif(bytes)) {
-    const m = heifMetadata(bytes);
+  }
+}
+
+export async function inspect(file: File): Promise<Inspected> {
+  const head = new Uint8Array(await file.slice(0, JPEG_HEAD).arrayBuffer());
+  let segments: Segment[] = [];
+  if (isJpeg(head)) {
+    segments = await jpegSegments(file, head);
+  } else if (isHeif(head)) {
+    const m = await heifMetadataOf(file, head);
     if (m.exif) segments.push(exifSegment(m.exif));
     if (m.xmp) segments.push(xmpSegment(m.xmp));
     if (m.icc) segments.push(...iccSegments(m.icc));

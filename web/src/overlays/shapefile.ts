@@ -1,6 +1,9 @@
 import { coordsBounds, polygonLabelAnchor, simplifyLine } from '../tiles/buildTile';
 import { MAX_POINTS, SIMPLIFY_DEGREES, tooDetailed, type Overlay, type OverlayFeature, type OverlayLegend, type OverlayProps } from './kml';
 import { fromWkt, ISN93, lonLat, type Unproject } from './proj';
+import { SHAPEFILE_EXTENSIONS } from './extensions';
+
+export { SHAPEFILE_EXTENSIONS };
 
 /**
  * A Shapefile reader for overlays (what Icelandic open data services hand out, such as
@@ -18,9 +21,6 @@ export interface ShapefileParts {
   prj?: string;
   cpg?: string;
 }
-
-/** The files that make up a Shapefile, by extension. */
-export const SHAPEFILE_EXTENSIONS = ['shp', 'dbf', 'prj', 'cpg', 'cst', 'shx', 'sbn', 'sbx', 'qix'];
 
 type Ring = Array<[number, number]>;
 type Value = string | number | boolean;
