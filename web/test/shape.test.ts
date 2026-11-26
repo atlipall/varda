@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { decodeSubdivision, pairs, type RawObject } from '../src/img/rgn';
+import { pairs, type RawObject } from '../src/img/rgn';
 import type { Subdivision } from '../src/img/tre';
 import { GarminMap, type MapTile } from '../src/map/garminMap';
 import { fastestRoute, GraphBuilder, metresBetween, NodeIndex, UNITS_PER_DEG, type Route } from '../src/routing/graph';
@@ -65,8 +65,7 @@ describe.skipIf(!hasRealData)('routeShape on real data', () => {
     // can check the shape stays on the decoded road lines (per the task's real-data test contract).
     const vertices = new Set<string>();
     const decode = async (tile: MapTile, sd: Subdivision): Promise<RawObject[]> => {
-      const bytes = await map.readSubdivision(tile, sd);
-      const objs = decodeSubdivision(bytes, sd, { sections: 0, badSections: 0 });
+      const objs = await map.decode(tile, sd);
       for (const o of objs) {
         if (o.kind === 'line' && o.labelSrc === 'net') for (const [x, y] of pairs(o.xy)) vertices.add(`${x},${y}`);
       }
@@ -99,7 +98,7 @@ describe.skipIf(!hasRealData)('routeShape on real data', () => {
     const g = await buildNetwork(map, roads);
     const idx = new NodeIndex(g);
     const route = fastestRoute(g, idx.nearest(-21.92, 64.13, 2000)!.node, idx.nearest(-19.35, 64.81, 2000)!.node, true)!;
-    const decode = async (tile: MapTile, sd: Subdivision) => decodeSubdivision(await map.readSubdivision(tile, sd), sd, { sections: 0, badSections: 0 });
+    const decode = (tile: MapTile, sd: Subdivision) => map.decode(tile, sd);
     const shape = (await routeShape(g, idx, route, roadLineSource(map, decode, roads))).coords;
     let drawn = 0;
     for (let i = 1; i < shape.length; i++) drawn += metresBetween(shape[i - 1][0] * UNITS_PER_DEG, shape[i - 1][1] * UNITS_PER_DEG, shape[i][0] * UNITS_PER_DEG, shape[i][1] * UNITS_PER_DEG);

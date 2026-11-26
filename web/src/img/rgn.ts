@@ -24,6 +24,11 @@ export interface RawObject {
    *  subdivision (each object's `xy` is a view into it): arrays of [x, y] pairs took over 130
    *  bytes a point, these take 8. */
   xy: Int32Array;
+  /** The label's text (null without one), once looked up (`LabelTable.resolve`; `GarminMap.decode`
+   *  does that unless asked not to). */
+  text: string | null | undefined;
+  /** All of a road's labels (`LabelTable.roadTexts`), filled in for `decodeAll`'s visitors. */
+  roadTexts?: string[];
 }
 
 /** An object's points as [x, y] pairs, for code that works on those (a new array each call). */
@@ -111,7 +116,7 @@ function point(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision): Decoded 
     size = 9;
   }
   pts.push(x, y);
-  return [size, { kind: 'point', type: (b8(c, o) << 8) | sub, label: lb & 0x3fffff, labelSrc: lb & 0x400000 ? 'poi' : 'lbl', xy: NO_POINTS }];
+  return [size, { kind: 'point', type: (b8(c, o) << 8) | sub, label: lb & 0x3fffff, labelSrc: lb & 0x400000 ? 'poi' : 'lbl', xy: NO_POINTS, text: undefined }];
 }
 
 function poly(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision, line: boolean): Decoded {
@@ -133,7 +138,7 @@ function poly(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision, line: bool
   p += 1;
   const deltas = decodeDeltas(bitstream(c, p, n), info, false, (lb & 0x400000) !== 0);
   walk(pts, sd, dx, dy, deltas);
-  return [p + n - o, { kind: line ? 'line' : 'polygon', type, label: lb & 0x3fffff, labelSrc: lb & 0x800000 ? 'net' : 'lbl', xy: NO_POINTS }];
+  return [p + n - o, { kind: line ? 'line' : 'polygon', type, label: lb & 0x3fffff, labelSrc: lb & 0x800000 ? 'net' : 'lbl', xy: NO_POINTS, text: undefined }];
 }
 
 function poly2(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision, line: boolean): Decoded {
@@ -161,7 +166,7 @@ function poly2(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision, line: boo
   }
   const type = 0x10000 | (t << 8) | (st & 0x1f);
   walk(pts, sd, dx, dy, deltas);
-  return [p - o, { kind: line ? 'line' : 'polygon', type, label, labelSrc: 'lbl', xy: NO_POINTS }];
+  return [p - o, { kind: line ? 'line' : 'polygon', type, label, labelSrc: 'lbl', xy: NO_POINTS, text: undefined }];
 }
 
 function point2(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision): Decoded {
@@ -181,7 +186,7 @@ function point2(pts: PointBuffer, c: Chunk, o: number, sd: Subdivision): Decoded
   }
   if (st & 0x80) size += 1;
   pts.push(x, y);
-  return [size, { kind: 'point', type: 0x10000 | (t << 8) | (st & 0x1f), label, labelSrc, xy: NO_POINTS }];
+  return [size, { kind: 'point', type: 0x10000 | (t << 8) | (st & 0x1f), label, labelSrc, xy: NO_POINTS, text: undefined }];
 }
 
 /** Decodes one section's objects into `out`, with where each one's points start in `pts` (`ends`

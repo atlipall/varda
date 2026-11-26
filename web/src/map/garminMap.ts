@@ -1,6 +1,6 @@
 import { ImgError, u16 } from '../img/bytes';
 import { ImgContainer } from '../img/container';
-import { LabelTable } from '../img/lbl';
+import { LabelCache, LabelTable, type Subfile } from '../img/lbl';
 import { DECODE_ALL, DECODE_LINES, DECODE_POINTS, DECODE_POLYGONS, decodeSubdivision, type Chunk, type DecodeStats, type RawObject, type SubdivisionBytes } from '../img/rgn';
 import type { ByteSource } from '../img/source';
 import { extRanges, hasData, KIND_IDX_POINTS, KIND_LINES, KIND_POINTS, KIND_POLYGONS, parseTre, type Subdivision, type Tre } from '../img/tre';
@@ -28,7 +28,7 @@ export function objectName(tile: MapTile, obj: RawObject): string | null {
 
 /** An object's name, and for a point on a map that labels them so, what it is ("Waterfall"). */
 export function objectLabel(tile: MapTile, obj: RawObject): { name: string | null; what?: string } {
-  const name = tile.labels.text(obj.label, obj.labelSrc);
+  const name = obj.text ?? null;
   if (!name) return { name };
   if (obj.kind === 'line' && CONTOUR_LINE_TYPES.has(obj.type)) return { name: contourLabel(name) };
   return obj.kind === 'point' ? tile.conventions.pointLabel(name) : { name };
@@ -51,6 +51,8 @@ export class GarminMap {
     if (ids.length === 0) throw new ImgError('no map tiles (TRE subfiles) in IMG');
     const tiles: MapTile[] = [];
     const conventions = conventionsFor(img.description);
+    const labelCache = new LabelCache();
+    const subfile = (name: string): Subfile => ({ size: img.size(name), read: (o, n) => img.read(name, o, n) });
     for (const id of ids) {
       for (const ext of ['TRE', 'RGN', 'LBL']) if (!img.has(`${id}.${ext}`)) throw new ImgError(`${id}: missing ${ext} subfile`);
       let tre: Tre;
@@ -63,7 +65,7 @@ export class GarminMap {
       }
       let labels: LabelTable;
       try {
-        labels = new LabelTable(await img.read(`${id}.LBL`), img.has(`${id}.NET`) ? await img.read(`${id}.NET`) : null);
+        labels = await LabelTable.open(subfile(`${id}.LBL`), img.has(`${id}.NET`) ? subfile(`${id}.NET`) : null, labelCache, tiles.length);
       } catch (err) {
         throw named(`${id}.LBL`, err);
       }
@@ -113,9 +115,27 @@ export class GarminMap {
     return { main, ext: [pg, ln, pt] };
   }
 
-  /** A subdivision's objects (of the kinds in `kinds`, `DECODE_*` bits: all by default). */
-  async decode(tile: MapTile, sd: Subdivision, stats: DecodeStats = { sections: 0, badSections: 0 }, kinds = DECODE_ALL): Promise<RawObject[]> {
-    return decodeSubdivision(await this.readSubdivision(tile, sd, kinds), sd, stats, kinds);
+  /**
+   * A subdivision's objects with their labels' texts: of the kinds in `opts.kinds` (`DECODE_*`
+   * bits; all by default), with `opts.roadTexts` each road's `roadTexts` too, its sections counted
+   * in `opts.stats`. With `opts.labels` false, no texts (`withLabels` adds them later).
+   */
+  async decode(
+    tile: MapTile, sd: Subdivision, opts: { stats?: DecodeStats; kinds?: number; roadTexts?: boolean; labels?: boolean } = {},
+  ): Promise<RawObject[]> {
+    const kinds = opts.kinds ?? DECODE_ALL;
+    const objs = decodeSubdivision(await this.readSubdivision(tile, sd, kinds), sd, opts.stats ?? { sections: 0, badSections: 0 }, kinds);
+    return opts.labels === false ? objs : this.withLabels(tile, objs, opts.roadTexts);
+  }
+
+  /** The objects, with the texts of their labels filled in where they weren't yet. */
+  async withLabels(tile: MapTile, objs: RawObject[], roadTexts = false): Promise<RawObject[]> {
+    try {
+      await tile.labels.resolve(objs, roadTexts);
+    } catch (err) {
+      throw named(`${tile.id}.LBL`, err);
+    }
+    return objs;
   }
 
   /** A whole subfile (e.g. `14057406.NOD`), or null when the map doesn't have it. */

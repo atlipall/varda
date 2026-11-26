@@ -2,7 +2,8 @@ import type { DecodeStats, RawObject } from '../img/rgn';
 import type { Subdivision } from '../img/tre';
 import type { GarminMap, MapTile } from './garminMap';
 
-/** Visit every object of every subdivision that has data at a level with a zoom band, in file order. */
+/** Visit every object of every subdivision that has data at a level with a zoom band, in file order
+ *  (roads with their `roadTexts`). */
 export async function decodeAll(
   map: GarminMap,
   visit: (tile: MapTile, sd: Subdivision, obj: RawObject) => void | false,
@@ -15,7 +16,7 @@ export async function decodeAll(
       .flatMap(([, sds]) => sds));
     for (const sd of tile.tre.subdivisions) {
       if (!wanted.has(sd)) continue;
-      for (const obj of await map.decode(tile, sd, stats)) {
+      for (const obj of await map.decode(tile, sd, { stats, roadTexts: true })) {
         if (visit(tile, sd, obj) === false) return stats;
       }
     }

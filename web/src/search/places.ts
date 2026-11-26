@@ -58,7 +58,7 @@ export async function collectIndex(map: GarminMap): Promise<{ places: Place[]; r
   const out: Place[] = [];
   const roads = new RoadClassCollector();
   await decodeAll(map, (tile, _sd, obj) => {
-    if (obj.kind === 'line' && obj.labelSrc === 'net') roads.add(tile.id, obj.label, roadClass(obj.type, tile.labels.roadTexts(obj.label)));
+    if (obj.kind === 'line' && obj.labelSrc === 'net') roads.add(tile.id, obj.label, roadClass(obj.type, obj.roadTexts ?? []));
     if (obj.kind === 'line' && CONTOUR_LINE_TYPES.has(obj.type)) return;
     const { name, what } = objectLabel(tile, obj);
     if (!name || isNumber(name)) return;

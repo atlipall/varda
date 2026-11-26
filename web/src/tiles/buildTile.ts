@@ -466,20 +466,37 @@ export async function buildTile(
     await Promise.all(entries.map(async (e) => {
       // A partial view that isn't derived from the full entry decodes only the kind it keeps
       // (cached under its own key, never as the full entry).
+      // Labels are looked up below, only for the objects this tile names.
       const decode = async (kinds?: number) => {
         const stats = { sections: 0, badSections: 0 };
-        const decoded = await map.decode(e.tile, e.sd, stats, kinds);
+        const decoded = await map.decode(e.tile, e.sd, { stats, kinds, labels: false });
         badSections += stats.badSections;
         return decoded;
+      };
+      const roads = async (objs: RawObject[]) => {
+        const lines = await map.withLabels(e.tile, objs.filter((o) => o.kind === 'line'));
+        return ownPoints(lines.filter((o) => isRoad(e.tile, o))
+          .map((o) => ({ ...o, xy: packed(simplifyLine(pairs(o.xy), EARLY_ROAD_TOLERANCE)) })));
       };
       const objs = e.view === 'all'
         ? await cache.get(e.key, () => decode())
         : await cache.get(`${e.key}|${e.view}`, async () =>
           e.view === 'roads'
-            ? ownPoints((cache.peek(e.key) ?? (await decode(DECODE_LINES))).filter((o) => isRoad(e.tile, o))
-              .map((o) => ({ ...o, xy: packed(simplifyLine(pairs(o.xy), EARLY_ROAD_TOLERANCE)) })))
+            ? roads(cache.peek(e.key) ?? (await decode(DECODE_LINES)))
             : ownPoints((cache.peek(e.key) ?? (await decode(DECODE_POLYGONS))).filter(isNamedPolygon)));
       resolved.set(e, objs);
+    }));
+
+    // Where each object lies: in the tile, and (an area) near enough for its label to count.
+    const inTileAt = (b: Int32Array, i: number) => b[i * 4] <= query[2] && b[i * 4 + 2] >= query[0] && b[i * 4 + 1] <= query[3] && b[i * 4 + 3] >= query[1];
+    const nearAt = (b: Int32Array, i: number) => b[i * 4] <= labelQuery[2] && b[i * 4 + 2] >= labelQuery[0] && b[i * 4 + 1] <= labelQuery[3] && b[i * 4 + 3] >= labelQuery[1];
+    // The labels of the objects named below, looked up together (a cached object keeps its text).
+    await Promise.all(entries.map((e) => {
+      const objs = resolved.get(e)!;
+      const b = boundsOf(objs);
+      const early = e.view === 'all' && roadBits !== undefined;
+      return map.withLabels(e.tile, objs.filter((o, i) => o.text === undefined
+        && ((early && o.kind === 'line') || inTileAt(b, i) || (o.kind === 'polygon' && nearAt(b, i)))));
     }));
 
     for (const e of entries) {
@@ -491,9 +508,8 @@ export async function buildTile(
         // supplies those, so each road is drawn once).
         if (e.view === 'all' && roadBits !== undefined && isRoad(tile, obj)) continue;
         const [bw, bs, be, bn] = [allBounds[i * 4], allBounds[i * 4 + 1], allBounds[i * 4 + 2], allBounds[i * 4 + 3]];
-        const inTile = bw <= query[2] && be >= query[0] && bs <= query[3] && bn >= query[1];
-        const name = obj.kind === 'polygon' && bw <= labelQuery[2] && be >= labelQuery[0] && bs <= labelQuery[3] && bn >= labelQuery[1]
-          ? objectName(tile, obj) : null;
+        const inTile = inTileAt(allBounds, i);
+        const name = obj.kind === 'polygon' && nearAt(allBounds, i) ? objectName(tile, obj) : null;
         const pts = name || inTile ? projectAll(obj.xy) : [];
         if (name) {
           // One label per polygon, not one per tile it crosses: anchor it on the whole polygon and

@@ -179,7 +179,7 @@ describe('polygonLabelAnchor', () => {
 
 describe('SubdivisionCache', () => {
   const objs = (n: number): RawObject[] => [
-    { kind: 'line', type: 0, label: 0, labelSrc: 'lbl', xy: new Int32Array(2 * n) },
+    { kind: 'line', type: 0, label: 0, labelSrc: 'lbl', xy: new Int32Array(2 * n), text: undefined },
   ];
 
   test('evicts least-recently-used entries once their size in bytes is over the budget', async () => {

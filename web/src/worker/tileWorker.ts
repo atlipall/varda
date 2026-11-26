@@ -163,7 +163,7 @@ self.onmessage = async (e: MessageEvent) => {
         network = building;
       }
       const { graph, index, roads } = await network;
-      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd));
+      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd)).then((objs) => m.withLabels(tile, objs));
       const lines = roadLineSource(m, decode, roads);
       const shape = (route: Route) => routeShape(graph, index, route, lines);
       const result = await planRoute(graph, index, lines, msg.from as [number, number], msg.to as [number, number], msg.allowFRoads as boolean, shape, msg.preferFRoads === true);
@@ -172,7 +172,7 @@ self.onmessage = async (e: MessageEvent) => {
       // A track matched to the map's roads (for its turn instructions): only the road lines needed.
       if (!opened) throw new Error('map not opened');
       const m = await opened;
-      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd));
+      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd)).then((objs) => m.withLabels(tile, objs));
       const segs = await matchTrack(msg.coords as Array<[number, number]>, roadLineSource(m, decode, msg.roads as RoadClasses), msg.times as Array<number | null> | undefined);
       self.postMessage({ type: 'match', id: msg.id, segs });
     }
