@@ -6,7 +6,8 @@ import { GarminMap, type MapTile } from '../src/map/garminMap';
 import { fastestRoute, GraphBuilder, metresBetween, NodeIndex, UNITS_PER_DEG, type Route } from '../src/routing/graph';
 import { buildNetwork } from '../src/routing/network';
 import { roadLineSource, routeShape } from '../src/routing/shape';
-import type { RoadLine } from '../src/routing/snap';
+import { linesThrough, type RoadLine, type RoadLines } from '../src/routing/snap';
+import { paddedSubdivisionBounds } from '../src/tiles/buildTile';
 import { collectIndex } from '../src/search/places';
 import { nodeSource } from './helpers/nodeSource';
 import { DETAILED, F_ROAD_DETAILED, hasRealData } from './helpers/paths';
@@ -106,6 +107,39 @@ describe.skipIf(!hasRealData)('routeShape on real data', () => {
     console.log(`drawn ${(drawn / 1000).toFixed(1)} km of ${(route.metres / 1000).toFixed(1)} km`);
     // Straight cuts across bends make the drawn line clearly shorter than the road.
     expect(drawn / route.metres).toBeGreaterThan(0.97);
+  }, 300_000);
+
+  test('the line source finds what a scan of every subdivision finds, near and through a point', async () => {
+    const { roads } = await collectIndex(map);
+    const decode = async (tile: MapTile, sd: Subdivision) => decodeSubdivision(await map.readSubdivision(tile, sd), sd, { sections: 0, badSections: 0 });
+    const lines = roadLineSource(map, decode, roads);
+    const bits = Math.max(...map.bands.keys());
+    const key = (l: RoadLine) => `${l.tile}:${l.net}:${l.coords[0]}:${l.coords.length}`;
+    // Every finest subdivision's padded bounds checked, as the source did before its grid.
+    const scan = async (x: number, y: number, r: number) => {
+      const ry = r / metresBetween(0, 0, 0, 1);
+      const rx = ry / Math.cos((y / UNITS_PER_DEG) * (Math.PI / 180));
+      const out: string[] = [];
+      for (const [i, tile] of map.tiles.entries()) for (const sd of tile.byLevel.get(bits) ?? []) {
+        const [w, s, e, n] = paddedSubdivisionBounds(sd);
+        if (x + rx < w || x - rx > e || y + ry < s || y - ry > n) continue;
+        for (const o of await decode(tile, sd)) if (o.kind === 'line' && o.labelSrc === 'net') out.push(`${i}:${o.label}:${o.coords[0]}:${o.coords.length}`);
+      }
+      return out;
+    };
+    const plain: RoadLines = (x, y, r) => lines(x, y, r);
+    for (const [lon, lat, r] of [[-21.94, 64.146, 0], [-21.94, 64.146, 40], [-19.06, 63.99, 2000], [-16.9, 64.02, 10_000]] as const) {
+      const [x, y] = [lon * UNITS_PER_DEG, lat * UNITS_PER_DEG];
+      const got = (await lines(x, y, r)).map(key);
+      expect(got).toEqual(await scan(x, y, r));
+      // Through each vertex of a few of those lines: the same as a scan of the lines there.
+      for (const l of (await lines(x, y, r)).slice(0, 20)) {
+        const [vx, vy] = l.coords[l.coords.length >> 1];
+        const fast = (await linesThrough(lines, vx, vy)).map(({ line, i }) => [key(line), i]);
+        expect(fast.length).toBeGreaterThan(0);
+        expect(fast).toEqual((await linesThrough(plain, vx, vy)).map(({ line, i }) => [key(line), i]));
+      }
+    }
   }, 300_000);
 });
 

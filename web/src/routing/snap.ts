@@ -16,8 +16,50 @@ export interface RoadLine {
 
 /** Road lines that may come within `radiusM` metres of (x, y) (map units): those of every
  *  subdivision whose bounds reach that box. Must return the same line objects for the same line
- *  within one route request (lines are told apart by identity when joining them). */
-export type RoadLines = (x: number, y: number, radiusM: number) => Promise<RoadLine[]>;
+ *  within one route request (lines are told apart by identity when joining them). `through`, when
+ *  there, gives what linesThrough does, faster. */
+export type RoadLines = ((x: number, y: number, radiusM: number) => Promise<RoadLine[]>) & {
+  through?: (x: number, y: number) => Promise<Array<{ line: RoadLine; i: number }>>;
+};
+
+/** The lines with a vertex at exactly (x, y), with each such vertex, in the order `lines` gives
+ *  them and then by vertex. */
+export async function linesThrough(lines: RoadLines, x: number, y: number): Promise<Array<{ line: RoadLine; i: number }>> {
+  if (lines.through) return lines.through(x, y);
+  const out: Array<{ line: RoadLine; i: number }> = [];
+  for (const line of await lines(x, y, 0)) {
+    for (let i = 0; i < line.coords.length; i++) if (line.coords[i][0] === x && line.coords[i][1] === y) out.push({ line, i });
+  }
+  return out;
+}
+
+/** A line's bounds (map units: west, south, east, north), worked out once per line. */
+const boxes = new WeakMap<RoadLine, Float64Array>();
+
+function boxOf(line: RoadLine): Float64Array {
+  let b = boxes.get(line);
+  if (!b) {
+    b = new Float64Array([Infinity, Infinity, -Infinity, -Infinity]);
+    for (const [x, y] of line.coords) {
+      if (x < b[0]) b[0] = x;
+      if (y < b[1]) b[1] = y;
+      if (x > b[2]) b[2] = x;
+      if (y > b[3]) b[3] = y;
+    }
+    boxes.set(line, b);
+  }
+  return b;
+}
+
+/** Whether every point of `line` is further than `metres` from q (map units), in nearestOnLine's
+ *  flat projection (x scaled by kx): its bounds are. Never true of a line that comes that near. */
+export function beyond(line: RoadLine, qx: number, qy: number, kx: number, metres: number): boolean {
+  const b = boxOf(line);
+  const dx = Math.max(0, b[0] - qx, qx - b[2]) * kx;
+  const dy = Math.max(0, b[1] - qy, qy - b[3]);
+  // A hair of slack for rounding: this only skips work.
+  return Math.sqrt(dx * dx + dy * dy) * M_PER_UNIT > metres * (1 + 1e-9) + 1e-6;
+}
 
 /** One way off the snapped point to a graph node. `leave`/`arrive`: the speed (km/h) of travelling
  *  from the point to the node / from the node to the point, 0 when the road doesn't allow it. */
@@ -130,7 +172,7 @@ export class Snapper {
     const kx = Math.cos((p[1] * Math.PI) / 180);
     for (const radius of SNAP_STEPS_M) {
       const found = (await this.lines(qx, qy, radius))
-        .filter((l) => (allowFRoads || l.cls === 0) && l.coords.length > 0)
+        .filter((l) => (allowFRoads || l.cls === 0) && l.coords.length > 0 && !beyond(l, qx, qy, kx, radius))
         .map((l) => ({ l, near: nearestOnLine(l.coords, qx, qy, kx) }))
         .map((c) => ({ ...c, m: Math.sqrt(c.near.d2) * M_PER_UNIT }))
         .filter((c) => c.m <= radius)
@@ -227,7 +269,7 @@ export async function followRoad(lines: RoadLines, index: NodeIndex, line: RoadL
     }
     // The line ends short of a node: the road goes on in another line starting or ending here.
     const end = path[path.length - 1];
-    const next = (await lines(end[0], end[1], 0)).find((l) => l !== cur && l.tile === cur.tile && l.net === cur.net && (sameXY(l.coords[0], end) || sameXY(l.coords[l.coords.length - 1], end)));
+    const next = (await linesThrough(lines, end[0], end[1])).find(({ line: l, i: k }) => l !== cur && l.tile === cur.tile && l.net === cur.net && (k === 0 || k === l.coords.length - 1))?.line;
     if (!next) return null;
     cur = next;
     const forward = sameXY(next.coords[0], end);
