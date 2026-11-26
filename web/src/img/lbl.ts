@@ -1,6 +1,7 @@
 import { isNumber, pyRound } from '../map/zoom';
 import { ascii, ImgError, u16, u24, u32, u8 } from './bytes';
 import type { LabelSrc, RawObject } from './rgn';
+import type { ByteSource } from './source';
 
 const FEET_TO_M = 0.3048;
 const ELEVATION_SEPARATOR = 0x1f;
@@ -40,10 +41,7 @@ function decoderFor(codepage: number): TextDecoder {
 }
 
 /** A subfile's bytes, read when needed. */
-export interface Subfile {
-  size: number;
-  read(offset: number, length: number): Promise<Uint8Array>;
-}
+export type Subfile = ByteSource;
 
 /** A subfile already in memory (tests). */
 export const inMemory = (bytes: Uint8Array): Subfile => ({ size: bytes.length, read: async (o, n) => bytes.subarray(o, o + n) });
@@ -250,10 +248,10 @@ export class LabelTable {
 
   /** Every label of a road (NET): its name and, on some maps, its number as a second label, e.g.
    *  "Fjallabaksleið nyrðri" and "F208" (Freizeitkarte). Up to four; the last has bit 23 set. */
-  async roadTexts(net: number): Promise<string[]> {
+  async roadTexts(label: number): Promise<string[]> {
     const [lbl, nb] = this.blocks();
     let out: string[] = [];
-    await readAll([() => void (out = this.roads(net, lbl, nb))]);
+    await readAll([() => void (out = this.roads(label, lbl, nb))]);
     return out;
   }
 

@@ -217,7 +217,17 @@ function run(
 }
 
 const SECTIONS = [KIND_POINTS, KIND_IDX_POINTS, KIND_LINES, KIND_POLYGONS];
-const decodeBit = (kind: number) => (kind === KIND_LINES ? DECODE_LINES : kind === KIND_POLYGONS ? DECODE_POLYGONS : DECODE_POINTS);
+function decodeBit(kind: number): number {
+  if (kind === KIND_LINES) return DECODE_LINES;
+  if (kind === KIND_POLYGONS) return DECODE_POLYGONS;
+  return DECODE_POINTS;
+}
+
+/** The `DECODE_*` kinds in a subdivision's main RGN section. */
+export const mainKinds = (sd: Subdivision): number => SECTIONS.reduce((bits, k) => (sd.kinds & k ? bits | decodeBit(k) : bits), 0);
+
+/** The `DECODE_*` kind of each extended section, in `extRanges`' order. */
+export const EXT_KINDS = [DECODE_POLYGONS, DECODE_LINES, DECODE_POINTS] as const;
 
 /** The subdivision's objects of the kinds in `kinds` (`DECODE_*` bits; all by default). */
 export function decodeSubdivision(bytes: SubdivisionBytes, sd: Subdivision, stats: DecodeStats, kinds = DECODE_ALL): RawObject[] {
@@ -251,9 +261,9 @@ export function decodeSubdivision(bytes: SubdivisionBytes, sd: Subdivision, stat
     }
   }
   const [[pgA, pgE], [lnA, lnE], [ptA, ptE]] = extRanges(sd);
-  if (kinds & DECODE_POLYGONS && pgE > pgA) run(stats, out, ends, pts, pgA, pgE, (o) => poly2(pts, bytes.ext[0], o, sd, false));
-  if (kinds & DECODE_LINES && lnE > lnA) run(stats, out, ends, pts, lnA, lnE, (o) => poly2(pts, bytes.ext[1], o, sd, true));
-  if (kinds & DECODE_POINTS && ptE > ptA) run(stats, out, ends, pts, ptA, ptE, (o) => point2(pts, bytes.ext[2], o, sd));
+  if (kinds & EXT_KINDS[0] && pgE > pgA) run(stats, out, ends, pts, pgA, pgE, (o) => poly2(pts, bytes.ext[0], o, sd, false));
+  if (kinds & EXT_KINDS[1] && lnE > lnA) run(stats, out, ends, pts, lnA, lnE, (o) => poly2(pts, bytes.ext[1], o, sd, true));
+  if (kinds & EXT_KINDS[2] && ptE > ptA) run(stats, out, ends, pts, ptA, ptE, (o) => point2(pts, bytes.ext[2], o, sd));
   const all = pts.buf.slice(0, pts.length);
   out.forEach((obj, i) => {
     obj.xy = all.subarray(i ? ends[i - 1] : 0, ends[i]);

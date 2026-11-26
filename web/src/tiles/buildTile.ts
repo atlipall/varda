@@ -38,8 +38,9 @@ interface CacheEntry {
   bytes: number | null;
 }
 
-/** About what a decoded object takes besides its points: the object and its view of the points. */
-const OBJECT_BYTES = 160;
+/** About what a decoded object takes besides its points: the object, its view of the points, its
+ *  bounds (`boundsOf`) and, on average, its label's text. */
+const OBJECT_BYTES = 200;
 
 /** About how much memory decoded objects take: each object, and the buffers holding their points. */
 export function decodedBytes(objs: RawObject[]): number {
@@ -80,7 +81,7 @@ export class SubdivisionCache {
   /** Bumped by clear(): a load started before it doesn't count towards the budget after it. */
   private generation = 0;
 
-  constructor(private readonly maxBytes: number = 32_000_000) {}
+  constructor(private readonly maxBytes: number = 40_000_000) {}
 
   get(key: string, load: () => Promise<RawObject[]>): Promise<RawObject[]> {
     const existing = this.entries.get(key);
@@ -132,6 +133,9 @@ export class SubdivisionCache {
     }
   }
 }
+
+/** A line that only its name can show to be a road (`isRoad` needs its label's text). */
+const mayBeNamedRoad = (o: RawObject) => o.kind === 'line' && !isRoadType(o.type) && o.label !== 0 && !CONTOUR_LINE_TYPES.has(o.type);
 
 const intersects = (a: BBox, b: BBox) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
 
@@ -448,7 +452,7 @@ export async function buildTile(
     const roadBits = map.roadLevelForZoom(z);
     // Roads: the road types, and lines named as F-roads (maps that draw roads in their own types).
     const isRoad = (tile: MapTile, o: RawObject) =>
-      o.kind === 'line' && (isRoadType(o.type) || (o.label !== 0 && !CONTOUR_LINE_TYPES.has(o.type) && isFRoadName(objectName(tile, o))));
+      o.kind === 'line' && (isRoadType(o.type) || (mayBeNamedRoad(o) && isFRoadName(objectName(tile, o))));
     // Each subdivision is read in one of three views. 'all': the tile's own data. 'roads': only
     // the roads of the finer road level. 'labels': only named polygons, from around the tile, for
     // label context. The partial views are cached as their own (much smaller) entries, derived
@@ -479,7 +483,8 @@ export async function buildTile(
         return decoded;
       };
       const roads = async (objs: RawObject[]) => {
-        const lines = await map.withLabels(e.tile, objs.filter((o) => o.kind === 'line'));
+        const lines = objs.filter((o) => o.kind === 'line');
+        await map.withLabels(e.tile, lines.filter(mayBeNamedRoad));
         return ownPoints(lines.filter((o) => isRoad(e.tile, o))
           .map((o) => ({ ...o, xy: packed(simplifyLine(pairs(o.xy), EARLY_ROAD_TOLERANCE)) })));
       };
@@ -493,15 +498,16 @@ export async function buildTile(
     }));
 
     // Where each object lies: in the tile, and (an area) near enough for its label to count.
-    const inTileAt = (b: Int32Array, i: number) => b[i * 4] <= query[2] && b[i * 4 + 2] >= query[0] && b[i * 4 + 1] <= query[3] && b[i * 4 + 3] >= query[1];
-    const nearAt = (b: Int32Array, i: number) => b[i * 4] <= labelQuery[2] && b[i * 4 + 2] >= labelQuery[0] && b[i * 4 + 1] <= labelQuery[3] && b[i * 4 + 3] >= labelQuery[1];
+    const overlapsAt = (b: Int32Array, i: number, q: BBox) => b[i * 4] <= q[2] && b[i * 4 + 2] >= q[0] && b[i * 4 + 1] <= q[3] && b[i * 4 + 3] >= q[1];
+    const inTileAt = (b: Int32Array, i: number) => overlapsAt(b, i, query);
+    const nearAt = (b: Int32Array, i: number) => overlapsAt(b, i, labelQuery);
     // The labels of the objects named below, looked up together (a cached object keeps its text).
     await Promise.all(entries.map((e) => {
       const objs = resolved.get(e)!;
       const b = boundsOf(objs);
       const early = e.view === 'all' && roadBits !== undefined;
       return map.withLabels(e.tile, objs.filter((o, i) => o.text === undefined
-        && ((early && o.kind === 'line') || inTileAt(b, i) || (o.kind === 'polygon' && nearAt(b, i)))));
+        && ((early && mayBeNamedRoad(o)) || inTileAt(b, i) || (o.kind === 'polygon' && nearAt(b, i)))));
     }));
 
     for (const e of entries) {

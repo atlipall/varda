@@ -44,7 +44,6 @@ export function extFields([[pgA, pgE], [lnA, lnE], [ptA, ptE]]: readonly [Range,
 export const extRanges = (sd: Subdivision): [Range, Range, Range] =>
   [[sd.extPolygonStart, sd.extPolygonEnd], [sd.extLineStart, sd.extLineEnd], [sd.extPointStart, sd.extPointEnd]];
 
-
 export interface Tre {
   north: number;
   east: number;
