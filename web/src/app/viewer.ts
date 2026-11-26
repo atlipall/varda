@@ -11,6 +11,7 @@ import { preloadImages } from '../ui/images';
 import { versionLabel } from '../buildInfo';
 import { DEV } from '../channel';
 import { featureNameAt } from '../map/featureName';
+import { DEM_TILE_SIZE } from '../map/zoom';
 import { conventionsFor } from '../map/conventions';
 import { takenText } from '../photos/photo';
 import { SaveHere } from './saveHere';
@@ -132,7 +133,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     const { z, x, y, gen: of } = current(params.url);
     const r = await again(() => pool.dem(z, x, y, abortController.signal), abortController.signal, of);
     if (r.bitmap) return { data: r.bitmap };
-    if (r.rgba) return { data: await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba), 256, 256)) };
+    if (r.rgba) return { data: await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba), DEM_TILE_SIZE, DEM_TILE_SIZE)) };
     throw new Error(`empty DEM tile ${params.url}`);
   });
 

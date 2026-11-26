@@ -5,7 +5,9 @@ import type { Overview } from './overview';
 import { DEM_TILE_SIZE } from '../map/zoom';
 
 export const TILE_SIZE = DEM_TILE_SIZE;
-export const OVERVIEW_MAX_ZOOM = 8;
+/** The last zoom whose tiles are drawn from the overview: its samples are 24″ apart, about a
+ *  pixel of a zoom-7 tile (which spans 2.8° in 512 px). */
+export const OVERVIEW_MAX_ZOOM = 7;
 
 interface Placed {
   name: string;
@@ -119,7 +121,7 @@ export class Dem {
   /** Reads, from each file the tile touches, just the rows and columns it needs (in the file's own
    *  grid), then samples each point from the file of its 1° square. Every file holds its own edges,
    *  so bilinear never has to reach into a neighbour. Where the points are several samples apart
-   *  (1″ files at zooms 9-10), only every k-th sample is read into memory. */
+   *  (1″ files at zooms 8-9), only every k-th sample is read into memory. */
   private async fullResSampler(lons: number[], lats: number[]): Promise<(lon: number, lat: number) => number> {
     const [west, south, east, north] = this.bounds;
     const lonMin = Math.min(...lons);

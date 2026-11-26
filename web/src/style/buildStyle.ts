@@ -88,9 +88,12 @@ export function buildStyle(typ: Typ, opts: StyleOptions): { style: StyleSpecific
   }
 
   if (opts.dem) {
+    // MapLibre steepens slopes the lower a terrain tile's zoom, and 512-px tiles are a zoom lower
+    // than the 256-px ones this was tuned with (slopes 2^0.3 steeper): 0.45 rather than 0.5 keeps
+    // the shading about as it was.
     layers.push({
       id: 'hillshade', type: 'hillshade', source: 'dem',
-      paint: { 'hillshade-exaggeration': 0.5, 'hillshade-shadow-color': '#5a4a3a', 'hillshade-accent-color': '#5a4a3a', 'hillshade-highlight-color': '#ffffff' },
+      paint: { 'hillshade-exaggeration': 0.45, 'hillshade-shadow-color': '#5a4a3a', 'hillshade-accent-color': '#5a4a3a', 'hillshade-highlight-color': '#ffffff' },
     } as LayerSpecification);
   }
 

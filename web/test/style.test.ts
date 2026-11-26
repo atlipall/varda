@@ -111,7 +111,7 @@ describe('buildStyle', () => {
     expect(ids.indexOf('hillshade')).toBe(lastFill + 1);
     expect(ids.indexOf('hillshade')).toBeLessThan(ids.indexOf('ln-other'));
     expect(style.sources.dem).toEqual({
-      type: 'raster-dem', tiles: ['dem://{z}/{x}/{y}'], tileSize: 256, minzoom: 5, maxzoom: 11, encoding: 'mapbox', bounds: [-25, 63, -13, 67],
+      type: 'raster-dem', tiles: ['dem://{z}/{x}/{y}'], tileSize: 512, minzoom: 4, maxzoom: 10, encoding: 'mapbox', bounds: [-25, 63, -13, 67],
     });
   });
 });

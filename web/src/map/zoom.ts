@@ -2,12 +2,14 @@ export const ZOOM_OFFSET = 11;
 export const MIN_ZOOM = 4;
 export const MAX_ZOOM = 14;
 /** Terrain tiles: their size in pixels, and the zooms the map asks for them at (MapLibre enlarges
- *  zoom 11's beyond it). */
-export const DEM_TILE_SIZE = 256;
-export const DEM_MIN_ZOOM = 5;
-export const DEM_MAX_ZOOM = 11;
-/** With 1″ (HD) elevation files: zoom 11's pixels are about 2.5″ apart, so one zoom more shows their detail. */
-export const DEM_HD_MAX_ZOOM = 12;
+ *  zoom 10's beyond it). 512 px, so about 6 tiles cover a phone's screen rather than 15 at 256 px
+ *  (fewer tiles to build, send and shade). A 512-px tile at zoom z has the pixels of four 256-px
+ *  tiles at z + 1, so the zooms are one lower than 256-px tiles would need for the same detail. */
+export const DEM_TILE_SIZE = 512;
+export const DEM_MIN_ZOOM = 4;
+export const DEM_MAX_ZOOM = 10;
+/** With 1″ (HD) elevation files: zoom 10's pixels are about 2.5″ apart, so one zoom more shows their detail. */
+export const DEM_HD_MAX_ZOOM = 11;
 /** Line types for roads and tracks (Garmin 0x01-0x13; GPSmap.is puts the F-roads at 0x0d, 0x11-0x13). */
 export const isRoadType = (t: number) => t >= 0x01 && t <= 0x13;
 /** From this zoom up to ROADS_LEVEL_ZOOM, tiles take their roads from ROADS_LEVEL_ZOOM's level:
