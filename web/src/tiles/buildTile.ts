@@ -311,36 +311,41 @@ export function stitchLines(features: TileFeature[]): TileFeature[] {
   return out;
 }
 
-const ptKey = (p: Pt) => `${p[0]},${p[1]}`;
+/** A point's key as a number: tile coordinates are whole numbers well within ±32768. */
+const ptKey = (p: Pt) => (p[0] + 32768) * 65536 + (p[1] + 32768);
 
 /** Greedily chain polylines that share endpoints (reversing pieces as needed). */
 function joinParts(parts: Pt[][]): Pt[][] {
-  const byEnd = new Map<string, number[]>();
+  if (parts.length < 2) return parts;
+  const byEnd = new Map<number, number[]>();
   parts.forEach((part, i) => {
     for (const p of [part[0], part[part.length - 1]]) {
       const k = ptKey(p);
       (byEnd.get(k) ?? byEnd.set(k, []).get(k)!).push(i);
     }
   });
-  const used = new Array<boolean>(parts.length).fill(false);
-  const takeAt = (p: Pt): Pt[] | null => {
-    for (const i of byEnd.get(ptKey(p)) ?? []) {
+  const used = new Uint8Array(parts.length);
+  /** An unused part with an end at `p`, and whether it starts there. */
+  const takeAt = (p: Pt): [Pt[], boolean] | null => {
+    const k = ptKey(p);
+    for (const i of byEnd.get(k) ?? []) {
       if (used[i]) continue;
-      used[i] = true;
-      const part = parts[i];
-      return ptKey(part[0]) === ptKey(p) ? part : [...part].reverse();
+      used[i] = 1;
+      return [parts[i], ptKey(parts[i][0]) === k];
     }
     return null;
   };
   const chains: Pt[][] = [];
   for (let i = 0; i < parts.length; i++) {
     if (used[i]) continue;
-    used[i] = true;
+    used[i] = 1;
     // Both ways: the second turn extends from the piece's start, and turns the chain back round.
-    const chain = [...parts[i]];
+    const chain = parts[i].slice();
     for (let turn = 0; turn < 2; turn++) {
       for (let next = takeAt(chain[chain.length - 1]); next; next = takeAt(chain[chain.length - 1])) {
-        for (let k = 1; k < next.length; k++) chain.push(next[k]);
+        const [part, starts] = next;
+        if (starts) for (let k = 1; k < part.length; k++) chain.push(part[k]);
+        else for (let k = part.length - 2; k >= 0; k--) chain.push(part[k]);
       }
       chain.reverse();
     }
