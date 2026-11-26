@@ -1,4 +1,6 @@
 /* Offline support: precache the whole app shell; cache everything else same-origin on first use.
+ * Cached files are served at once; those that may change under their name are refreshed in the
+ * background too (not the hashed build files and fonts, which never do).
  *
  * `npm run build` rewrites the two placeholders below (scripts/precache.ts, run by the Vite plugin
  * in vite.config.ts): CACHE becomes `garmin-app-<hash of the built files>`, PRECACHE lists every
@@ -24,6 +26,9 @@ const NAV_TIMEOUT_MS = 3000;
 /** Remembers the app's last two caches, newest last (kept out of the clean-up below by name). */
 const ORDER = `${OWN}order-v1`;
 
+/** Files whose content never changes under their name: the build's hashed files
+ *  (`assets/index-B8-mEBLf.js`) and the fonts' glyph ranges. Each deploy precaches its own anyway. */
+const immutable = (url) => /\/assets\/[^/]+-[\w-]{8}\.\w+$/.test(url.pathname) || /\/fonts\/[^/]+\/\d+-\d+\.pbf$/.test(url.pathname);
 const cacheable = (res) => res && res.ok && res.type === 'basic';
 /** A cached response, from this version's cache first, else an older one still kept. */
 const cached = (req) => caches.open(CACHE).then((c) => c.match(req)).then((hit) => hit || caches.match(req));
@@ -82,6 +87,9 @@ self.addEventListener('fetch', (e) => {
   }
 
   e.respondWith(cached(req).then((hit) => {
+    // A file that never changes under its name (a hashed build file, a font range) is served from
+    // the cache alone; anything else is also fetched in the background for next time.
+    if (hit && immutable(url)) return hit;
     const net = fetch(req).then((res) => {
       if (cacheable(res)) put(req, res.clone());
       return res;
