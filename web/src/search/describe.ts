@@ -71,14 +71,15 @@ const R = 6371;
 const rad = (d: number) => (d * Math.PI) / 180;
 
 /** Great-circle distance in km. */
-function distanceKm(a: [number, number], b: [number, number]): number {
+export function distanceKm(a: [number, number], b: [number, number]): number {
   const [dLat, dLon] = [rad(b[1] - a[1]), rad(b[0] - a[0])];
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 /** "Near X" for the nearest named point (a hut, a farm, a peak, a town) within `km` of `at`, for
- *  naming a pin where no map feature is at hand. */
+ *  naming a pin where no map feature is at hand. A scan of every place: the app asks a NearIndex
+ *  (nearIndex.ts), which gives the same answer. */
 export function nearName(places: Place[], at: [number, number], km = 3): string | undefined {
   let best: Place | null = null;
   let bestKm = km;

@@ -6,7 +6,7 @@ import { BlobSource } from '../img/source';
 import { storageRoot } from '../channel';
 import { GarminMap } from '../map/garminMap';
 import { canonicalHgtName, defaultSetName, parseChoices, parseSetJson, type Choices, type SetJson } from './library';
-import { CHOICES, currentDirName, DIR_PREFIX, isCompleteDir, isMapDir, isMissing, isSetDir, listEntries, parseMeta, POINTER, readTextFile as readText, SET_PREFIX, setDir, subdir, type StoredMeta } from './layout';
+import { CHOICES, currentDirName, DIR_PREFIX, isCompleteDir, isMapDir, isMissing, isSetDir, listEntries, OLD_PLACES, parseMeta, PLACES, POINTER, readTextFile as readText, SET_PREFIX, setDir, subdir, type StoredMeta } from './layout';
 import { firstEntry } from './unzipStream';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -310,7 +310,7 @@ async function removeMap(id: string): Promise<void> {
   if (!dir) return;
   const dem = await subdir(dir, 'dem');
   if (dem && parseSetJson(await readText(dem, 'set.json'))) {
-    for (const f of ['meta.json', 'map.img', 'places.json', 'dem-overview.bin']) await removeEntry(dir, f);
+    for (const f of ['meta.json', 'map.img', PLACES, OLD_PLACES, 'dem-overview.bin']) await removeEntry(dir, f);
   } else await removeEntry(root, id, true);
   await updateChoices((c) => void delete c.maps[id]);
 }

@@ -39,7 +39,7 @@ export function decodePlacesCache(text: string, key: string): { places: Place[];
 
 /** Accepts only a plain object whose values are arrays of `[NET offset, 1|2|3]` pairs; anything
  *  else (including a missing field) is treated as invalid, so the whole places cache is rebuilt. */
-function decodeRoadClasses(value: unknown): RoadClasses | null {
+export function decodeRoadClasses(value: unknown): RoadClasses | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const out: RoadClasses = {};
   for (const [tileId, entries] of Object.entries(value as Record<string, unknown>)) {

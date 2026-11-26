@@ -1,20 +1,23 @@
-import { isTownType, nearness } from './describe';
-import { normalize } from './normalize';
-import type { Place } from './places';
+import { isTownType, nearness } from '../../src/search/describe';
+import { normalize } from '../../src/search/normalize';
+import type { Place } from '../../src/search/places';
 
 const KIND_RANK = { point: 0, polygon: 1, line: 2 } as const;
 const NEARBY_KM = 25;
 /** NEARBY_KM as a squared equirectangular distance in degrees (see `nearness`). */
 const NEARBY_DEG2 = (NEARBY_KM / 111.2) ** 2;
 
-/** Places are sorted once by (kind rank, normalized-name length, name); a search then scans in
+/** The search as main had it before placeStore.ts (the places and a normalized name per place,
+ *  on the page), kept as the reference the new one must match.
+ *
+ *  Places are sorted once by (kind rank, normalized-name length, name); a search then scans in
  *  that order, bucketing hits by match score, so within a score the hits come out already ranked
  *  and at most `limit` per score are kept. The result equals sorting every hit by (score, kind
  *  rank, length, name) — including ties, since both sorts are stable over the input order — but
  *  costs no per-query sort and stops early once `limit` exact-prefix hits are found.
  *  Kept small for big maps (Denmark has 617,000 places): a normalized name per place and the
  *  sorted order as numbers, no object or word list per place. */
-export class PlaceIndex {
+export class OldPlaceIndex {
   /** Normalized names, by the place's position in `places`. */
   private readonly norms: string[];
   /** Positions in `places`, in search order. */

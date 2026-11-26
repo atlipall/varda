@@ -1,7 +1,7 @@
 /** OPFS layout shared by the page (store.ts) and the storage worker.
  *
  *  Each import writes a fresh versioned directory `garmin-<timestamp>/` (map.img, dem/*.hgt,
- *  dem-overview.bin, meta.json, later places.json). The root pointer file `current.json`
+ *  dem-overview.bin, meta.json, later the place index `places.bin`). The root pointer file `current.json`
  *  (`{"dir": "garmin-<ts>"}`) is written LAST and is the commit: until it names the new directory,
  *  the previously stored map stays the current one. Maps stored before this layout live in the
  *  legacy `garmin/` directory.
@@ -17,6 +17,10 @@ export const DIR_PREFIX = 'garmin-';
 export const SET_PREFIX = 'elevation-';
 /** The user's names and hillshading choices (library.ts `Choices`). */
 export const CHOICES = 'maps.json';
+/** A map's place index (search/placeStore.ts), written by the places worker once built. */
+export const PLACES = 'places.bin';
+/** The place index as older versions kept it (JSON); read once and replaced by `PLACES`. */
+export const OLD_PLACES = 'places.json';
 
 const DIR_RE = /^garmin-(\d+)(?:-(\d+))?$/;
 const SET_RE = /^elevation-(\d+)(?:-(\d+))?$/;
