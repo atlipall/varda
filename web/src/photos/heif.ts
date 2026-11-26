@@ -1,3 +1,5 @@
+import { concat } from './jpeg';
+
 /**
  * The metadata of a HEIC photo (what an iPhone stores, and what a Mac or the Files picker can hand
  * over as it is): its EXIF, XMP and colour profile, so the JPEG copy can carry them.
@@ -164,19 +166,6 @@ function readMeta(b: Uint8Array, meta: Box, at: number): { exif: Extents | null;
   return { exif, xmp, icc };
 }
 
-/** The pieces joined (null when there are none). */
-function joined(parts: Uint8Array[] | null): Uint8Array | null {
-  if (!parts) return null;
-  if (parts.length === 1) return parts[0];
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out;
-}
-
 function decoded(exifItem: Uint8Array | null, xmpItem: Uint8Array | null, icc: Uint8Array | null): HeifMetadata {
   let exif: Uint8Array | null = null;
   // The item starts with where the TIFF header is, past a 4-byte length.
@@ -187,6 +176,9 @@ function decoded(exifItem: Uint8Array | null, xmpItem: Uint8Array | null, icc: U
   }
   return { exif, xmp: xmpItem ? new TextDecoder().decode(xmpItem) : null, icc };
 }
+
+/** The pieces joined (null when there are none). */
+const joined = (parts: Uint8Array[] | null) => (parts && parts.length === 1 ? parts[0] : parts && concat(parts));
 
 const NONE: HeifMetadata = { exif: null, xmp: null, icc: null };
 
@@ -203,10 +195,12 @@ export function heifMetadata(b: Uint8Array): HeifMetadata {
 
 /** The metadata of a HEIF file, reading only what's needed of it: the top-level boxes' headers,
  *  the `meta` box and the metadata items (a photo is megabytes, these some kilobytes). */
-export async function heifMetadataOf(file: Blob): Promise<HeifMetadata> {
-  const read = async (from: number, to: number) => new Uint8Array(await file.slice(from, Math.min(to, file.size)).arrayBuffer());
-  const head = await read(0, 32);
-  if (!isHeif(head)) return { ...NONE };
+export async function heifMetadataOf(file: Blob, start = new Uint8Array(0)): Promise<HeifMetadata> {
+  // `start`: the file's start, if already read.
+  const read = async (from: number, to: number) =>
+    Math.min(to, file.size) <= start.length ? start.slice(from, to) : new Uint8Array(await file.slice(from, Math.min(to, file.size)).arrayBuffer());
+  const first = await read(0, 32);
+  if (!isHeif(first)) return { ...NONE };
   // The top-level boxes, by their headers only, until `meta`.
   let i = 0;
   let meta: { at: number; size: number } | null = null;

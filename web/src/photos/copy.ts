@@ -44,7 +44,7 @@ export async function inspect(file: File): Promise<Inspected> {
   if (isJpeg(head)) {
     segments = await jpegSegments(file, head);
   } else if (isHeif(head)) {
-    const m = await heifMetadataOf(file);
+    const m = await heifMetadataOf(file, head);
     if (m.exif) segments.push(exifSegment(m.exif));
     if (m.xmp) segments.push(xmpSegment(m.xmp));
     if (m.icc) segments.push(...iccSegments(m.icc));

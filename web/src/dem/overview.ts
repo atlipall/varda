@@ -109,7 +109,7 @@ export function coversExactly(o: Overview, tiles: Array<{ south: number; west: n
   return o.north === north && o.west === west && o.rows === rows && o.cols === cols;
 }
 
-const MAGIC =0x4f4d4544; // "DEMO" little-endian
+const MAGIC = 0x4f4d4544; // "DEMO" little-endian
 
 export function encodeOverview(o: Overview): Uint8Array {
   const out = new Uint8Array(24 + o.data.length * 2);

@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { HGT_SIZE_ERROR, hgtStep, onePerSquare, parseHgtName } from '../dem/hgt';
-import { coversExactly, decodeOverview, encodeOverview, keptAfter, OverviewBuilder, type Overview } from '../dem/overview';
+import { coversExactly, decodeOverview, encodeOverview, keptAfter, OverviewBuilder } from '../dem/overview';
 import { ImgError } from '../img/bytes';
 import { BlobSource } from '../img/source';
 import { storageRoot } from '../channel';
@@ -61,12 +61,15 @@ function parseHgtFiles(hgt: File[]): Hgt[] {
   });
 }
 
-/** A set's stored overview, or null when it's missing or can't be read. */
-async function readOverview(dir: FileSystemDirectoryHandle, name: string): Promise<Overview | null> {
+/** Starts `builder` from set `old`'s stored overview (of `oldFiles`); false when it's missing,
+ *  unreadable or of another area. The old overview is let go on return, before the copying. */
+async function seedFrom(builder: OverviewBuilder, dir: FileSystemDirectoryHandle, old: SetJson | null, oldFiles: Hgt[]): Promise<boolean> {
+  if (!old) return false;
   try {
-    return decodeOverview(new Uint8Array(await (await (await dir.getFileHandle(name)).getFile()).arrayBuffer()));
+    const before = decodeOverview(new Uint8Array(await (await (await dir.getFileHandle(old.overview)).getFile()).arrayBuffer()));
+    return coversExactly(before, oldFiles) && builder.seed(before);
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -102,8 +105,7 @@ async function storeElevation(hgt: File[], into: string | null): Promise<string>
   // Adding to a set: its overview already holds the squares kept, so only the new ones are read
   // (not every old file again: over a GB for a set of fifty 1″ squares). Rebuilt from all the
   // files when the old overview can't be used.
-  const before = old ? await readOverview(dir, old.overview) : null;
-  const seeded = !!before && coversExactly(before, oldFiles) && builder.seed(before);
+  const seeded = await seedFrom(builder, dir, old, oldFiles);
   const kept = new Set(seeded ? all.filter((h) => storedName.has(h)) : []);
   const keeps = keptAfter(all, kept);
 

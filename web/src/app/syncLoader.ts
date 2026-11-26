@@ -1,4 +1,4 @@
-import { GOOGLE_CLIENT_ID, syncState } from '../sync/state';
+import { GOOGLE_CLIENT_ID, setSyncState, syncState } from '../sync/state';
 import type { DriveSync } from './driveSync';
 
 /**
@@ -40,6 +40,12 @@ export class SyncLoader {
 
   changed(): void {
     if (this.loading) this.loading.then((s) => s.changed(), () => {});
+    else if (syncState().on) {
+      // Sync is on but its code didn't load at the start (offline, say): keep the change for the
+      // next sync, as DriveSync.changed does, and try loading again (which syncs).
+      setSyncState({ ...syncState(), changedAt: Date.now() });
+      this.load().catch(() => {});
+    }
   }
 
   photosChanged(): void {
