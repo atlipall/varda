@@ -9,7 +9,7 @@ import { GarminMap } from '../src/map/garminMap';
 import { CONTOUR_LINE_TYPES } from '../src/map/zoom';
 import { buildStyle } from '../src/style/buildStyle';
 import { isLineLayer, styledLineTypes } from '../src/style/sourceLayers';
-import { buildTile, coordsBounds, dedupeLabels, paddedSubdivisionBounds, polygonLabelAnchor, simplifyLine, stitchLines, subPixel, SubdivisionCache } from '../src/tiles/buildTile';
+import { buildTile, coordsBounds, labelParts, dedupeLabels, paddedSubdivisionBounds, polygonLabelAnchor, simplifyLine, stitchLines, subPixel, SubdivisionCache } from '../src/tiles/buildTile';
 import { latToTileY, lonToTileX, tileBounds } from '../src/tiles/tileMath';
 import { nodeSource } from './helpers/nodeSource';
 import { DETAILED, hasRealData } from './helpers/paths';
@@ -91,6 +91,14 @@ describe('stitchLines', () => {
   type F = Parameters<typeof stitchLines>[0][number];
   const line = (t: number, name: string | undefined, ...parts: Array<Array<[number, number]>>): F =>
     ({ type: 2, geometry: parts, tags: name ? { t, name } : { t } });
+
+  test('a line label goes only on pieces at least as long as its name could be', () => {
+    // 18 tile units (2.3 px at 11 px) per character: "Ny" needs 36.
+    const short: Array<[number, number]> = [[0, 0], [20, 0], [20, 15]];
+    const long: Array<[number, number]> = [[0, 0], [30, 0], [30, 10]];
+    expect(labelParts([short, long], 'Ny')).toEqual([long]);
+    expect(labelParts([long], 'Nyhavn')).toEqual([]);
+  });
 
   test('joins touching pieces of the same named line into one continuous line', () => {
     const out = stitchLines([
@@ -320,19 +328,23 @@ describe.skipIf(!hasRealData)('buildTile on real data', () => {
           expect(f.name).toBeTruthy();
         } else if (f.layer !== 'line-names') expect(f.layer).toBe('points');
         if (f.name && isLineLayer(f.layer) && !['line-names', 'contours'].includes(f.layer)) {
-          const k = `${f.name}|${JSON.stringify(f.geom)}`;
-          named.set(k, (named.get(k) ?? 0) + 1);
+          for (const part of f.geom) {
+            const k = `${f.name}|${JSON.stringify(part)}`;
+            named.set(k, (named.get(k) ?? 0) + 1);
+          }
         }
       }
-      // The label copy: the same named lines, with the same geometry.
+      // The label copy: pieces of the named lines, unchanged, each long enough for its name.
       const copy = feats.filter((f) => f.layer === 'line-names');
       expect(copy.length).toBeGreaterThan(0);
       for (const f of copy) {
-        const k = `${f.name}|${JSON.stringify(f.geom)}`;
-        expect(named.get(k)).toBeGreaterThan(0);
-        named.set(k, named.get(k)! - 1);
+        for (const part of f.geom) {
+          const k = `${f.name}|${JSON.stringify(part)}`;
+          expect(named.get(k)).toBeGreaterThan(0);
+          named.set(k, named.get(k)! - 1);
+          expect(labelParts([part.map((q) => [q.x, q.y] as [number, number])], f.name!)).toHaveLength(1);
+        }
       }
-      expect([...named.values()].every((n) => n === 0)).toBe(true);
       // Every layer of the tiles that has a style layer is one the style draws from.
       const drawnFrom = new Set(style.layers.map((l) => (l as { 'source-layer'?: string })['source-layer']));
       for (const name of layers) if (name !== 'l-other' && !/^[lp]\d+$/.test(name)) expect(drawnFrom.has(name)).toBe(true);
