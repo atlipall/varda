@@ -306,11 +306,12 @@ class Heap {
 /** A search's per-node state, kept per graph so a route or reroute on a big map (2.6 million
  *  nodes on Freizeitkarte Denmark) doesn't allocate and fill tens of MB each time. `stamp[v]`
  *  tells which search last touched v: 2·gen once v has a cost in search `gen`, 2·gen + 1 once it's
- *  settled; anything lower means untouched (no cost yet, no edge in), whatever best/via hold. */
+ *  settled; anything lower means untouched (no cost yet, no edge in), whatever best/via hold.
+ *  14 bytes a node, kept (36 MB on Denmark); the stamps are cleared once every 32,767 searches. */
 interface Scratch {
   best: Float64Array;
   via: Int32Array;
-  stamp: Uint32Array;
+  stamp: Uint16Array;
   gen: number;
   heap: Heap;
 }
@@ -321,8 +322,8 @@ const scratches = new WeakMap<RoadGraph, Scratch>();
 function scratchFor(g: RoadGraph): Scratch {
   const n = g.nodeX.length;
   let s = scratches.get(g);
-  if (!s) scratches.set(g, (s = { best: new Float64Array(n), via: new Int32Array(n), stamp: new Uint32Array(n), gen: 0, heap: new Heap() }));
-  if (++s.gen >= 0x7fffffff) {
+  if (!s) scratches.set(g, (s = { best: new Float64Array(n), via: new Int32Array(n), stamp: new Uint16Array(n), gen: 0, heap: new Heap() }));
+  if (++s.gen >= 0x8000) {
     s.stamp.fill(0);
     s.gen = 1;
   }
