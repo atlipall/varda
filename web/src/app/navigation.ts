@@ -6,6 +6,19 @@ import { roadClass } from '../routing/roadClass';
 import { roundaboutIcon } from '../ui/roundaboutIcon';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+/** The banner and panel are redrawn on every fix: only what changed is written to the page. */
+const setText = (id: string, text: string) => {
+  const e = $(id);
+  if (e.textContent !== text) e.textContent = text;
+};
+/** The icons written, by element (reading innerHTML back would serialise it each time). */
+const icons = new WeakMap<HTMLElement, string>();
+const setIcon = (id: string, html: string) => {
+  const e = $(id);
+  if (icons.get(e) === html) return;
+  icons.set(e, html);
+  e.innerHTML = html;
+};
 
 /** Further than this from the route (m)… */
 const OFF_ROUTE_M = 50;
@@ -302,28 +315,28 @@ export class Navigator {
 
   private banner(iconSvg: string, dist: string, text: string, then: { m: Maneuver; gap: number } | null, state: '' | 'off' | 'arrived'): void {
     const b = $('nav-banner');
-    b.className = state;
-    $('nav-icon').innerHTML = iconSvg;
-    $('nav-dist').textContent = dist;
-    $('nav-text').textContent = text;
+    if (b.className !== state) b.className = state;
+    setIcon('nav-icon', iconSvg);
+    setText('nav-dist', dist);
+    setText('nav-text', text);
     // Screen readers hear a new instruction once, not every distance update.
     if (text !== this.said) {
       this.said = text;
       $('nav-say').textContent = state === 'off' || state === 'arrived' ? `${dist}. ${text}` : `In ${dist}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
     }
-    $('nav-then').hidden = !then;
+    if ($('nav-then').hidden !== !then) $('nav-then').hidden = !then;
     if (then) {
-      $('nav-then-icon').innerHTML = icon(then.m);
-      $('nav-then-text').textContent = then.m.text;
-      $('nav-then-dist').textContent = `in ${fmtDist(then.gap)}`;
+      setIcon('nav-then-icon', icon(then.m));
+      setText('nav-then-text', then.m.text);
+      setText('nav-then-dist', `in ${fmtDist(then.gap)}`);
     }
   }
 
   private panel(where: Where): void {
     const left = this.progress!.left(where.along);
-    $('nav-arrive').textContent = clock(Date.now() + left.seconds * 1000);
-    $('nav-time').textContent = fmtLeft(left.seconds);
-    $('nav-km').textContent = `${fmtDist(left.metres)} left`;
+    setText('nav-arrive', clock(Date.now() + left.seconds * 1000));
+    setText('nav-time', fmtLeft(left.seconds));
+    setText('nav-km', `${fmtDist(left.metres)} left`);
   }
 
   private ask(on: boolean): void {

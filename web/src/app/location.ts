@@ -20,6 +20,14 @@ const HANDS_ON_MS = 800;
 const SPEED_SMOOTHING = 0.4;
 /** The height pill is refreshed once the position has moved this far (m). */
 const HEIGHT_MIN_MOVE = 10;
+/** The marker's turn follows the heading in steps of at least this (degrees): the compass reads up
+ *  to 60 times a second. */
+const MARKER_TURN_MIN_DEG = 0.5;
+/** The accuracy circle is drawn this big (px) and scaled to its size; resized only when that
+ *  changes by more than `ACCURACY_STEP`, and hidden when smaller than the dot. */
+const ACCURACY_PX = 100;
+const ACCURACY_STEP = 0.03;
+const DOT_PX = 18;
 
 export interface Fix {
   at: [number, number];
@@ -67,6 +75,11 @@ export class LocationControl implements maplibregl.IControl {
   private readonly marker: maplibregl.Marker;
   private readonly markerEl = document.createElement('div');
   private readonly accuracyEl = document.createElement('div');
+  private readonly accuracyRing = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  /** The accuracy circle's scale as drawn (0: hidden). */
+  private accuracyScale = 0;
+  /** The marker's turn as drawn. */
+  private markerTurn: number | null = null;
   private readonly coneEl = document.createElement('div');
   private watchId: number | null = null;
   private fix: Fix | null = null;
@@ -100,6 +113,15 @@ export class LocationControl implements maplibregl.IControl {
     this.container.append(this.button);
     this.markerEl.className = 'you';
     this.accuracyEl.className = 'you-accuracy';
+    this.accuracyEl.hidden = true;
+    // An SVG circle, so its outline stays 1 px however far it's scaled (its stroke is set to 1/scale).
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', `0 0 ${ACCURACY_PX} ${ACCURACY_PX}`);
+    svg.setAttribute('width', String(ACCURACY_PX));
+    svg.setAttribute('height', String(ACCURACY_PX));
+    for (const [k, v] of [['cx', ACCURACY_PX / 2], ['cy', ACCURACY_PX / 2], ['r', ACCURACY_PX / 2]] as const) this.accuracyRing.setAttribute(k, String(v));
+    svg.append(this.accuracyRing);
+    this.accuracyEl.append(svg);
     this.coneEl.className = 'you-cone';
     const dot = document.createElement('div');
     dot.className = 'you-dot';
@@ -346,7 +368,10 @@ export class LocationControl implements maplibregl.IControl {
     this.coneEl.hidden = next == null;
     if (next == null) return;
     this.heading = smoothAngle(this.heading, next, this.compass ? HEADING_SMOOTHING : 1);
-    this.marker.setRotation(this.heading);
+    if (this.markerTurn === null || Math.abs(angleDelta(this.markerTurn, this.heading)) >= MARKER_TURN_MIN_DEG) {
+      this.markerTurn = this.heading;
+      this.marker.setRotation(this.heading);
+    }
     if (this.state.mode === 'heading' && !this.state.paused && this.map) {
       const now = Date.now();
       if (Math.abs(angleDelta(this.map.getBearing(), this.heading)) >= ROTATE_MIN_DEG && now - this.lastRotate >= ROTATE_MIN_MS) {
@@ -380,10 +405,25 @@ export class LocationControl implements maplibregl.IControl {
     map.easeTo({ center: this.fix.at, bearing, zoom, offset, duration: jump ? 600 : 300, essential: true });
   }
 
+  /** Sizes the accuracy circle by scaling it (no layout), at most twice the screen's diagonal
+   *  across (still covering the screen from any corner). */
   private sizeAccuracy(): void {
     if (!this.map || !this.fix) return;
-    const px = Math.max(0, (2 * this.fix.accuracy) / metresPerPixel(this.fix.at[1], this.map.getZoom()));
-    this.accuracyEl.style.width = this.accuracyEl.style.height = `${Math.min(px, 4000)}px`;
+    const { clientWidth: w, clientHeight: h } = this.map.getContainer();
+    const px = Math.min((2 * this.fix.accuracy) / metresPerPixel(this.fix.at[1], this.map.getZoom()), 2 * Math.hypot(w, h));
+    const el = this.accuracyEl;
+    if (!(px >= DOT_PX)) {
+      el.hidden = true;
+      this.accuracyScale = 0;
+      return;
+    }
+    const scale = px / ACCURACY_PX;
+    if (this.accuracyScale && Math.abs(scale / this.accuracyScale - 1) < ACCURACY_STEP) return;
+    this.accuracyScale = scale;
+    el.hidden = false;
+    el.style.transform = `scale(${scale})`;
+    this.accuracyRing.setAttribute('stroke-width', String(1 / scale));
+    this.accuracyRing.setAttribute('r', String(ACCURACY_PX / 2 - 0.5 / scale));
   }
 
   private updateHeight(at: [number, number]): void {

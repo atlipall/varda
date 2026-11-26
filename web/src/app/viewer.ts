@@ -36,6 +36,9 @@ import type { TilePool } from '../worker/pool';
 import { carryOver, openSource, parseTileUrl, type MapSource } from './mapSource';
 import { MapsUi } from './mapsPanel';
 
+/** While following the position, the view is saved at most this often (ms). */
+const FOLLOW_SAVE_MS = 10_000;
+
 /** MapLibre zooms, i.e. one less than the raster samples' zoom, so the scale matches. */
 const SAMPLES: Array<{ name: string; center: [number, number]; zoom: number }> = [
   { name: 'reykjavik-z14', center: [-21.94, 64.146], zoom: 14 },
@@ -496,8 +499,11 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   // The route planner is built after it so its route line draws above GPX tracks.
   // Remember the view, location mode and route card as they change, and when the app is hidden.
   let rememberTimer = 0;
+  let savedAt = 0;
   const saveNow = () => {
     clearTimeout(rememberTimer);
+    rememberTimer = 0;
+    savedAt = Date.now();
     if (closed) return;
     const c = map.getCenter();
     saveSession({
@@ -511,7 +517,13 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     clearTimeout(rememberTimer);
     rememberTimer = window.setTimeout(saveNow, 500);
   };
-  map.on('moveend', remember);
+  // While following the position the map stops moving on every fix: the view is saved at most
+  // every FOLLOW_SAVE_MS then (and when the app is hidden, below).
+  map.on('moveend', () => {
+    const { mode, paused } = locate.current;
+    if (mode === 'off' || paused) return remember();
+    if (!rememberTimer) rememberTimer = window.setTimeout(saveNow, Math.max(500, savedAt + FOLLOW_SAVE_MS - Date.now()));
+  });
   locate.onStateChange = remember;
   document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && saveNow());
   window.addEventListener('pagehide', saveNow);
