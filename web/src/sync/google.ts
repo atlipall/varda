@@ -32,6 +32,9 @@ export interface SyncState {
   /** When something last changed here, and the last such change a sync has taken in. */
   changedAt?: number;
   syncedAt?: number;
+  /** The sync file's version when every photo's picture was last found in place (here, and in
+   *  Drive): while the file keeps it, a sync needn't list the pictures in Drive. */
+  picturesAt?: string;
   /** The refresh key, sealed by the sign-in helper: new tokens without signing in again. */
   sealed?: string;
 }
@@ -39,7 +42,7 @@ export interface SyncState {
 export function syncState(): SyncState {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-    return s && typeof s === 'object' ? { on: s.on === true, token: s.token, expires: s.expires, lastSync: s.lastSync, fileId: s.fileId, version: s.version, changedAt: s.changedAt, syncedAt: s.syncedAt, sealed: typeof s.sealed === 'string' ? s.sealed : undefined } : { on: false };
+    return s && typeof s === 'object' ? { on: s.on === true, token: s.token, expires: s.expires, lastSync: s.lastSync, fileId: s.fileId, version: s.version, changedAt: s.changedAt, syncedAt: s.syncedAt, picturesAt: typeof s.picturesAt === 'string' ? s.picturesAt : undefined, sealed: typeof s.sealed === 'string' ? s.sealed : undefined } : { on: false };
   } catch {
     return { on: false };
   }
