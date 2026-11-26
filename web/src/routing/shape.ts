@@ -1,4 +1,4 @@
-import type { RawObject } from '../img/rgn';
+import { pairs, type RawObject } from '../img/rgn';
 import type { Subdivision } from '../img/tre';
 import { objectName, type GarminMap, type MapTile } from '../map/garminMap';
 import { paddedSubdivisionBounds } from '../tiles/buildTile';
@@ -94,7 +94,7 @@ export function roadLineSource(map: GarminMap, decode: (tile: MapTile, sd: Subdi
         wanted.push(decode(tile, sd).then((objs) => {
           const lines = made.get(key) ?? objs
             .filter((o) => o.kind === 'line' && o.labelSrc === 'net')
-            .map((o) => ({ tile: i, net: o.label, cls: classOf[i].get(o.label) ?? 0, coords: o.coords, name: objectName(tile, o), type: o.type }));
+            .map((o) => ({ tile: i, net: o.label, cls: classOf[i].get(o.label) ?? 0, coords: pairs(o.xy), name: objectName(tile, o), type: o.type }));
           made.set(key, lines);
           return lines;
         }));

@@ -2,7 +2,8 @@
 import { storageRoot } from '../channel';
 import { BlobSource } from '../img/source';
 import { GarminMap } from '../map/garminMap';
-import { OLD_PLACES, PLACES, readFile, readTextFile, writeAll } from '../storage/layout';
+import { writeAll } from '../storage/files';
+import { OLD_PLACES, PLACES, readFile, readTextFile } from '../storage/layout';
 import { collectIndex } from './places';
 import { decodePlacesCache } from './placesCache';
 import { columnsFromPlaces, decodeColumns, encodeColumns, PlaceStore, type PlaceColumns } from './placeStore';

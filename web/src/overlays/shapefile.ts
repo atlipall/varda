@@ -1,6 +1,9 @@
 import { coordsBounds, polygonLabelAnchor, simplifyLine } from '../tiles/buildTile';
-import type { Overlay, OverlayFeature, OverlayLegend, OverlayProps } from './kml';
+import { MAX_POINTS, SIMPLIFY_DEGREES, tooDetailed, type Overlay, type OverlayFeature, type OverlayLegend, type OverlayProps } from './kml';
 import { fromWkt, ISN93, lonLat, type Unproject } from './proj';
+import { SHAPEFILE_EXTENSIONS } from './extensions';
+
+export { SHAPEFILE_EXTENSIONS };
 
 /**
  * A Shapefile reader for overlays (what Icelandic open data services hand out, such as
@@ -19,9 +22,6 @@ export interface ShapefileParts {
   cpg?: string;
 }
 
-/** The files that make up a Shapefile, by extension. */
-export const SHAPEFILE_EXTENSIONS = ['shp', 'dbf', 'prj', 'cpg', 'cst', 'shx', 'sbn', 'sbx', 'qix'];
-
 type Ring = Array<[number, number]>;
 type Value = string | number | boolean;
 
@@ -35,7 +35,6 @@ const NO_VALUE = 'Not given';
  *  the map shows; 30% of Óbyggðanefnd's points): in the file's own units, before projecting, so
  *  only the points kept are projected. Grid units are metres; degrees: about a metre. */
 const SIMPLIFY_METRES = 1;
-const SIMPLIFY_DEGREES = 1e-5;
 
 /** The text encoding a .cpg/.cst names, else UTF-8 when the bytes are valid UTF-8, else
  *  Windows-1252 (what older Icelandic data tends to use). */
@@ -143,16 +142,14 @@ function polygons(rings: Ring[]): Ring[][] {
 
 type Shape = { type: 'points'; points: Ring } | { type: 'lines'; lines: Ring[] } | { type: 'areas'; areas: Ring[][] };
 
-/** More points than this and an overlay is too much for a phone to hold and draw (Óbyggðanefnd's
- *  þjóðlendur have 228,000; Fjarskiptastofa's 4G coverage 1.2 million, about 60 MB once read). */
-export const MAX_POINTS = 600_000;
+export { MAX_POINTS };
 
 /** The shapes in a .shp, in lon/lat, by record (null for a null shape). */
 function readShapes(shp: Uint8Array, unproject: Unproject): Array<Shape | null> {
   let points = 0;
   const count = (n: number) => {
     points += n;
-    if (points > MAX_POINTS) throw new Error(`It’s too detailed for the app: over ${MAX_POINTS.toLocaleString('en')} points.`);
+    if (points > MAX_POINTS) throw tooDetailed();
   };
   const v = new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
   // Degrees when the file's extent fits in them (whatever order its axes are in).

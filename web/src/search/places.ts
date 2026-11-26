@@ -1,5 +1,5 @@
 import { mapUnitsToDeg } from '../img/bytes';
-import type { Kind } from '../img/rgn';
+import { pairs, type Kind } from '../img/rgn';
 import { decodeAll } from '../map/decodeAll';
 import { objectLabel, objectName, type GarminMap } from '../map/garminMap';
 import { CONTOUR_LINE_TYPES, isNumber } from '../map/zoom';
@@ -58,18 +58,19 @@ export async function collectIndex(map: GarminMap): Promise<{ places: Place[]; r
   const out: Place[] = [];
   const roads = new RoadClassCollector();
   await decodeAll(map, (tile, _sd, obj) => {
-    if (obj.kind === 'line' && obj.labelSrc === 'net') roads.add(tile.id, obj.label, roadClass(obj.type, tile.labels.roadTexts(obj.label)));
+    if (obj.kind === 'line' && obj.labelSrc === 'net') roads.add(tile.id, obj.label, roadClass(obj.type, obj.roadTexts ?? []));
     if (obj.kind === 'line' && CONTOUR_LINE_TYPES.has(obj.type)) return;
     const { name, what } = objectLabel(tile, obj);
     if (!name || isNumber(name)) return;
     let lon: number;
     let lat: number;
     if (obj.kind === 'point') {
-      [lon, lat] = obj.coords[0].map(mapUnitsToDeg);
+      [lon, lat] = [mapUnitsToDeg(obj.xy[0]), mapUnitsToDeg(obj.xy[1])];
     } else {
       // A point on the feature: a line's vertex nearest its middle, an area's label point (the
       // middle of the bounding box can lie off a bent road or a crescent lake).
-      const [x, y] = obj.kind === 'polygon' ? polygonLabelAnchor(obj.coords) : nearestVertex(obj.coords, bboxCenter(obj.coords));
+      const coords = pairs(obj.xy);
+      const [x, y] = obj.kind === 'polygon' ? polygonLabelAnchor(coords) : nearestVertex(coords, bboxCenter(coords));
       lon = mapUnitsToDeg(x);
       lat = mapUnitsToDeg(y);
     }

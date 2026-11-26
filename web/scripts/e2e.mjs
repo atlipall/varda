@@ -401,9 +401,10 @@ try {
       return {
         rows: [...document.querySelectorAll('#maps-panel .overlay-row')].map((r) => `${r.querySelector('.n').textContent}: ${r.querySelector('.s').textContent}`),
         message: document.querySelector('#maps-panel .status').textContent,
-        features: m.getStyle().sources.overlays.data.features.length,
-        fillUnderNames: ids.indexOf('overlay-fill') < ids.indexOf(firstBaseSymbol),
-        pointsUnderTracks: ids.indexOf('overlay-point') < ids.indexOf('gpx-casing'),
+        // Each overlay has its own source (overlay:<id>) and layers (overlay-<kind>:<id>).
+        features: Object.entries(window.__app.map.getStyle().sources).filter(([k]) => k.startsWith('overlay:')).flatMap(([, s]) => s.data.features).length,
+        fillUnderNames: Math.max(...ids.flatMap((id, i) => (id.startsWith('overlay-fill:') ? [i] : []))) < ids.indexOf(firstBaseSymbol),
+        pointsUnderTracks: Math.max(...ids.flatMap((id, i) => (id.startsWith('overlay-point:') ? [i] : []))) < ids.indexOf('gpx-casing'),
       };
     });
     console.log('overlays:', ov.rows.join('; '), '|', ov.message);
@@ -422,8 +423,8 @@ try {
     await page.screenshot({ path: `${OUT}overlays-panel.png` });
     // A tap on the row hides an overlay's shapes at once and remembers it.
     await page.click('#maps-panel .overlay-row:nth-child(1) .row');
-    await page.waitForFunction((n) => window.__app.map.getStyle().sources.overlays.data.features.length < n, { timeout: 5_000 }, ov.features).catch(() => {});
-    const hidden = await page.evaluate(() => ({ features: window.__app.map.getStyle().sources.overlays.data.features.length, visible: window.__app.overlays.all.map((o) => o.visible), pressed: document.querySelector('#maps-panel .overlay-row .row').getAttribute('aria-pressed') }));
+    await page.waitForFunction((n) => Object.entries(window.__app.map.getStyle().sources).filter(([k]) => k.startsWith('overlay:')).flatMap(([, s]) => s.data.features).length < n, { timeout: 5_000 }, ov.features).catch(() => {});
+    const hidden = await page.evaluate(() => ({ features: Object.entries(window.__app.map.getStyle().sources).filter(([k]) => k.startsWith('overlay:')).flatMap(([, s]) => s.data.features).length, visible: window.__app.overlays.all.map((o) => o.visible), pressed: document.querySelector('#maps-panel .overlay-row .row').getAttribute('aria-pressed') }));
     if (hidden.features >= ov.features || hidden.visible[0] !== false || hidden.pressed !== 'false') fail(`hiding an overlay: ${JSON.stringify(hidden)}`);
     if (!(await page.$eval('#maps-apply', (b) => b.disabled).catch(() => true))) fail('hiding an overlay lit up Apply');
     // ⓘ → Show where it is: shown again, the panel closed and the map over it.
@@ -458,7 +459,7 @@ try {
       const th = await page.evaluate(() => ({
         row: document.querySelector('#maps-panel .overlay-row')?.innerText.replace(/\s+/g, ' '),
         message: document.querySelector('#maps-panel .status')?.textContent,
-        features: window.__app.map.getStyle().sources.overlays.data.features.length,
+        features: Object.entries(window.__app.map.getStyle().sources).filter(([k]) => k.startsWith('overlay:')).flatMap(([, s]) => s.data.features).length,
       }));
       console.log('Shapefile overlay:', th.row, '|', th.message, '|', th.features, 'features');
       if (!/TH 306 areas/.test(th.row) || th.features < 306) fail(`Shapefile overlay: ${JSON.stringify(th)}`);
@@ -512,7 +513,7 @@ try {
         .catch(async () => fail(`Get did not add the huts: ${await page.$eval('#maps-panel', (e) => e.innerText)}`));
       const huts = await page.evaluate(() => {
         const o = window.__app.overlays.all.find((x) => x.source?.ogc === 'f4x4:skalar');
-        const f = window.__app.map.getStyle().sources.overlays.data.features.filter((x) => x.properties.k === 'point');
+        const f = (window.__app.map.getStyle().sources[`overlay:${o?.id}`]?.data.features ?? []).filter((x) => x.properties.k === 'point');
         return { name: o?.name, visible: o?.visible, points: f.length, lon: f[0]?.geometry.coordinates[0] };
       });
       if (huts.name !== 'Mountain huts' || !huts.visible || huts.points !== 7 || !(huts.lon < -14 && huts.lon > -20)) fail(`huts overlay: ${JSON.stringify(huts)}`);

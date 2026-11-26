@@ -1,5 +1,8 @@
 import { authUrl, exchangeCode, HelperError, refreshToken, revokeSealed, signInReturn, withoutSignInReturn } from './helper';
 import { storageName } from '../channel';
+import { GOOGLE_CLIENT_ID, setSyncState, syncState, type SyncState } from './state';
+
+export { GOOGLE_CLIENT_ID, setSyncState, syncState, type SyncState };
 
 /**
  * Signing in to Google for Drive sync. Asks for the drive.appdata scope alone: the app's hidden
@@ -8,50 +11,12 @@ import { storageName } from '../channel';
  * only then), whose access token lasts about an hour. The token is kept in localStorage so sync runs
  * without a new sign-in until it runs out.
  */
-
-/** The app's OAuth client ID (public; made in Google Cloud Console), or VITE_GOOGLE_CLIENT_ID at
- *  build time (the e2e run uses a fake). Empty: sync isn't offered. */
-export const GOOGLE_CLIENT_ID: string = import.meta.env.VITE_GOOGLE_CLIENT_ID || '461823178284-761cjr28lki3ocobgt9n8kag1op4f5rp.apps.googleusercontent.com';
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const GIS = 'https://accounts.google.com/gsi/client';
-const KEY = storageName('google-sync');
 
 interface TokenResponse { access_token?: string; expires_in?: number; error?: string }
 interface TokenClient { requestAccessToken(o?: { prompt?: string }): void }
 interface Gis { accounts: { oauth2: { initTokenClient(c: { client_id: string; scope: string; callback: (r: TokenResponse) => void; error_callback?: (e: { type: string }) => void }): TokenClient; revoke(token: string, done?: () => void): void } } }
-
-/** What's remembered on this device: whether sync is on, the current token and the last sync. */
-export interface SyncState {
-  on: boolean;
-  token?: string;
-  expires?: number;
-  lastSync?: number;
-  fileId?: string;
-  /** The sync file's version after the last sync here (unchanged since: no download needed). */
-  version?: string;
-  /** When something last changed here, and the last such change a sync has taken in. */
-  changedAt?: number;
-  syncedAt?: number;
-  /** The refresh key, sealed by the sign-in helper: new tokens without signing in again. */
-  sealed?: string;
-}
-
-export function syncState(): SyncState {
-  try {
-    const s = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-    return s && typeof s === 'object' ? { on: s.on === true, token: s.token, expires: s.expires, lastSync: s.lastSync, fileId: s.fileId, version: s.version, changedAt: s.changedAt, syncedAt: s.syncedAt, sealed: typeof s.sealed === 'string' ? s.sealed : undefined } : { on: false };
-  } catch {
-    return { on: false };
-  }
-}
-
-export function setSyncState(s: SyncState): void {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(s));
-  } catch {
-    // not remembered: sync asks to sign in again next time
-  }
-}
 
 /** A token that still has a minute or more left. */
 export function validToken(s: SyncState = syncState()): string | null {

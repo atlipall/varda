@@ -124,6 +124,43 @@ function runWorker<T = void>(msg: Record<string, unknown>, onProgress?: (m: stri
   }).finally(() => w.terminate());
 }
 
+/** How long the small-change worker stays open after its last change (ms). */
+const FILE_WORKER_IDLE_MS = 20_000;
+let fileWorker: Worker | null = null;
+let fileIdle = 0;
+/** Small changes run one at a time in the one worker. */
+let fileQueue: Promise<unknown> = Promise.resolve();
+
+/** A small change (which map is current, a small file, removing a map or a set), in a worker that
+ *  doesn't load the map parser and stays open a while for the next one (fileWorker.ts). */
+function runSmall(msg: Record<string, unknown>): Promise<void> {
+  const run = fileQueue.then(() => {
+    clearTimeout(fileIdle);
+    const w = (fileWorker ??= new Worker(new URL('./fileWorker.ts', import.meta.url), { type: 'module' }));
+    return new Promise<void>((resolve, reject) => {
+      w.onmessage = (e) => {
+        if (e.data.type === 'done') resolve();
+        else if (e.data.type === 'error') reject(new Error(e.data.message));
+      };
+      w.onerror = (e) => {
+        // A worker that failed to start or crashed: a fresh one next time.
+        if (fileWorker === w) fileWorker = null;
+        w.terminate();
+        reject(new Error(e.message || 'storage worker failed'));
+      };
+      w.postMessage(msg);
+    }).finally(() => {
+      clearTimeout(fileIdle);
+      fileIdle = self.setTimeout(() => {
+        fileWorker?.terminate();
+        fileWorker = null;
+      }, FILE_WORKER_IDLE_MS);
+    });
+  });
+  fileQueue = run.catch(() => {});
+  return run;
+}
+
 export interface ImportChoices {
   name?: string;
   /** The set to use: an id, null for none, undefined for automatic (new .hgt files make a set). */
@@ -148,9 +185,9 @@ export const importElevation = (hgt: File[], into: string | null, onProgress: (m
 /** A map file's area and name, read without storing it. */
 export const inspectMap = (img: File) => runWorker<{ bounds: Bounds; description: string }>({ type: 'inspect', img });
 
-export const setCurrent = (id: string) => runWorker({ type: 'setCurrent', id });
-export const removeMap = (id: string) => runWorker({ type: 'removeMap', id });
-export const removeSet = (id: string) => runWorker({ type: 'removeSet', id });
+export const setCurrent = (id: string) => runSmall({ type: 'setCurrent', id });
+export const removeMap = (id: string) => runSmall({ type: 'removeMap', id });
+export const removeSet = (id: string) => runSmall({ type: 'removeSet', id });
 
 /** Changes the user's choices (names, hillshading) from the stored ones. */
 export function changeChoices(change: (c: Choices) => void): Promise<void> {
@@ -158,7 +195,7 @@ export function changeChoices(change: (c: Choices) => void): Promise<void> {
   const run = choicesQueue.then(async () => {
     const c = parseChoices(await readTextFile(await storageRoot(), CHOICES));
     change(c);
-    await runWorker({ type: 'writeText', dir: null, name: CHOICES, text: JSON.stringify(c) });
+    await runSmall({ type: 'writeText', dir: null, name: CHOICES, text: JSON.stringify(c) });
   });
   choicesQueue = run.catch(() => {});
   return run;

@@ -30,7 +30,7 @@ function openAt(version?: number): Promise<IDBDatabase> {
  * may have raised it and added stores of its own. Upgraded (one version up) only when a store this
  * version needs is missing.
  */
-async function open(): Promise<IDBDatabase> {
+async function openFresh(): Promise<IDBDatabase> {
   if (typeof indexedDB === 'undefined') throw new Error('This browser cannot store data.');
   const db = await openAt();
   if (STORES.every((s) => db.objectStoreNames.contains(s))) return db;
@@ -39,17 +39,72 @@ async function open(): Promise<IDBDatabase> {
   return openAt(next);
 }
 
-/** Runs one request on `store` in its own transaction and resolves when the transaction completes. */
-export async function run<T>(store: StoreName, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+/** The open connection, kept between requests (each thumbnail, synced item and added photo used to
+ *  open and close the database). Let go when another tab or version wants to upgrade the database,
+ *  or when the browser closes it (storage cleared, an error), so the next request opens it afresh,
+ *  again at whatever version it has then. */
+let shared: Promise<IDBDatabase> | null = null;
+
+function open(): Promise<IDBDatabase> {
+  if (shared) return shared;
+  const p = openFresh().then((db) => {
+    const drop = () => {
+      if (shared === p) shared = null;
+    };
+    db.onversionchange = () => {
+      drop();
+      db.close();
+    };
+    db.onclose = drop;
+    return db;
+  });
+  shared = p;
+  p.catch(() => {
+    if (shared === p) shared = null;
+  });
+  return p;
+}
+
+/** A transaction on the shared connection; opened once more if the connection was closed under it
+ *  (InvalidStateError) without the close being reported yet. */
+async function transaction(stores: StoreName | StoreName[], mode: IDBTransactionMode): Promise<IDBTransaction> {
   const db = await open();
   try {
-    return await new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(store, mode);
-      const req = fn(tx.objectStore(store));
-      tx.oncomplete = () => resolve(req.result);
-      tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('Storage failed.'));
-    });
-  } finally {
-    db.close();
+    return db.transaction(stores, mode);
+  } catch (err) {
+    if (!(err instanceof DOMException && err.name === 'InvalidStateError')) throw err;
+    shared = null;
+    return (await open()).transaction(stores, mode);
   }
+}
+
+const finished = (tx: IDBTransaction) =>
+  new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('Storage failed.'));
+  });
+
+/** Runs one request on `store` in its own transaction and resolves when the transaction completes. */
+export async function run<T>(store: StoreName, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  const tx = await transaction(store, mode);
+  const done = finished(tx);
+  const req = fn(tx.objectStore(store));
+  await done;
+  return req.result;
+}
+
+/** Runs many requests on `stores` in one transaction (a sync's puts and deletes) and resolves when
+ *  it completes: all of them are written or, on a failure, none. `fn` may start more requests from
+ *  a request's onsuccess, but must not await anything else, or the transaction ends early. */
+export async function batch(stores: StoreName[], mode: IDBTransactionMode, fn: (tx: IDBTransaction) => void): Promise<void> {
+  const tx = await transaction(stores, mode);
+  const done = finished(tx);
+  try {
+    fn(tx);
+  } catch (err) {
+    tx.abort();
+    await done.catch(() => {});
+    throw err;
+  }
+  await done;
 }

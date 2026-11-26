@@ -7,7 +7,7 @@ import { editName } from '../ui/rename';
 import { overlaySummary, type OverlayMap } from './overlayMap';
 import { EYE_OFF, EYE_ON } from './listButtons';
 import { agencyOf, PICKED, pickedLayer, searchLayers, serverLayers, type OgcLayer } from '../overlays/ogc';
-import { OVERLAY_EXTENSIONS } from '../overlays/read';
+import { OVERLAY_EXTENSIONS } from '../overlays/extensions';
 import type { StoredOverlay } from '../overlays/store';
 
 /** The free OpenStreetMap-based map of Iceland, through the download pass-through (web/download-worker). */

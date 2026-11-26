@@ -99,7 +99,7 @@ class Terrain {
 }
 
 export class ServedMap {
-  private readonly cache = new SubdivisionCache(750_000);
+  private readonly cache = new SubdivisionCache();
   private typ: Typ | null = null;
   private spriteSheet: ReturnType<typeof buildSprite> | null = null;
 
