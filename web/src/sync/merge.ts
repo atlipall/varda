@@ -90,5 +90,9 @@ export function planSync(local: Local, remote: Backup | null, now = new Date()):
 
 /** Two sync files as one (two devices that first synced at the same moment each made one). */
 export function mergeFiles(a: Backup, b: Backup, now = new Date()): Backup {
-  return planSync({ saved: a.saved, tracks: a.tracks, deleted: a.deleted ?? {}, photos: a.photos ?? [] }, b, now).upload ?? b;
+  const merged = planSync({ saved: a.saved, tracks: a.tracks, deleted: a.deleted ?? {}, photos: a.photos ?? [] }, b, now).upload ?? b;
+  // The track files both name (the later write of a track's points where both do).
+  const files = { ...a.trackFiles };
+  for (const [id, f] of Object.entries(b.trackFiles ?? {})) if (!files[id] || f.at > files[id].at) files[id] = f;
+  return a.trackFiles || b.trackFiles ? { ...merged, trackFiles: files } : merged;
 }
