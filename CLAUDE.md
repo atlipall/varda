@@ -71,6 +71,17 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
+- **`big-map-routing` branch (2026-11-26), on the development site:** big maps (Freizeitkarte
+  Denmark: 609 MB, 3.67 million routing nodes, 617,000 places; a copy in
+  `map-files/Freizeitkarte DNK/` for `test/bigMap.test.ts`). Routing's graph in typed arrays
+  (`XYTable`, `Column` in `web/src/routing/graph.ts`; footpath-only nodes left out): 890 MB →
+  270 MB kept, the owner's iPhone routes on it now. Drawing: round line ends only from 3 px wide
+  (`ends` in `buildStyle.ts`), unnamed line pieces joined (`stitchLines`), a smaller `PlaceIndex`.
+  Waiting for the owner's phone test of smoothness and the occasional reloads. Next levers if
+  needed: one layer per line/area type means 350-430 draw calls a screen there (Iceland: 80-200);
+  buildings at zoom 13; `places.json` (54 MB) parsed on the main thread at start; the 1.3 s sort
+  in `PlaceIndex`. Seen, not looked into: hardly any street names in central Copenhagen at zoom 14.
+
 - **Shipped 2026-11-19** (merged from `ogc-overlays`, tested on the owner's iPhone): Get overlays from ogc.gis.is
   (mockup `mockups/ogc-overlays.html`; `web/src/overlays/ogc.ts`, the `ogc` view in `mapsPanel.ts`,
   `OverlayMap.download/update`). Owner's choices: a picked list of ~20 travel layers in plain words
