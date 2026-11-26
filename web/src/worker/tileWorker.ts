@@ -1,7 +1,6 @@
 /// <reference lib="webworker" />
 import { Dem, TILE_SIZE } from '../dem/dem';
 import { decodeOverview } from '../dem/overview';
-import { decodeSubdivision } from '../img/rgn';
 import { BlobSource } from '../img/source';
 import type { Subdivision } from '../img/tre';
 import { GarminMap, type MapTile } from '../map/garminMap';
@@ -26,9 +25,9 @@ let network: Promise<{ graph: RoadGraph; index: NodeIndex; roads: RoadClasses }>
 /** Set synchronously when `open` arrives, so a `dem` request that lands while `open` is still
  *  building the DEM (e.g. right after the pool respawned this worker) waits instead of failing. */
 let demReady: Promise<Dem | null> | null = null;
-// 750k points: the coarsest level alone needs ~585k for a 3x3 block of z7 tiles, plus the slim
-// early-road and label-context entries.
-const cache = new SubdivisionCache(750_000);
+// The default 40 MB holds a 3x3 block of Iceland's z6 tiles (150,000 objects, 1.3 million
+// points) with its early-road and label-context entries; that's about 50 MB in memory.
+const cache = new SubdivisionCache();
 /** Ids of `tile` requests the pool has asked us to abandon. Checked before starting decode work
  *  and again right before posting a result, so a cancelled tile does as little wasted work as
  *  practical; entries are removed once consumed so the set can't grow without bound. */
@@ -164,7 +163,7 @@ self.onmessage = async (e: MessageEvent) => {
         network = building;
       }
       const { graph, index, roads } = await network;
-      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, async () => decodeSubdivision(await m.readSubdivision(tile, sd), sd, { sections: 0, badSections: 0 }));
+      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd, { labels: false })).then((objs) => m.withLabels(tile, objs));
       const lines = roadLineSource(m, decode, roads);
       const shape = (route: Route) => routeShape(graph, index, route, lines);
       const result = await planRoute(graph, index, lines, msg.from as [number, number], msg.to as [number, number], msg.allowFRoads as boolean, shape, msg.preferFRoads === true);
@@ -173,7 +172,7 @@ self.onmessage = async (e: MessageEvent) => {
       // A track matched to the map's roads (for its turn instructions): only the road lines needed.
       if (!opened) throw new Error('map not opened');
       const m = await opened;
-      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, async () => decodeSubdivision(await m.readSubdivision(tile, sd), sd, { sections: 0, badSections: 0 }));
+      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd, { labels: false })).then((objs) => m.withLabels(tile, objs));
       const segs = await matchTrack(msg.coords as Array<[number, number]>, roadLineSource(m, decode, msg.roads as RoadClasses), msg.times as Array<number | null> | undefined);
       self.postMessage({ type: 'match', id: msg.id, segs });
     }

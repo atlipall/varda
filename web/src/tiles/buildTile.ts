@@ -1,6 +1,6 @@
 import { fromGeojsonVt } from '@maplibre/vt-pbf';
 import { clipPolygon, clipPolyline } from 'lineclip';
-import { decodeSubdivision, type RawObject } from '../img/rgn';
+import { DECODE_LINES, DECODE_POLYGONS, packed, pairs, type RawObject } from '../img/rgn';
 import { shiftOf, subdivisionBounds, type Subdivision } from '../img/tre';
 import { objectName, type GarminMap, type MapTile } from '../map/garminMap';
 import { CONTOUR_LINE_TYPES, isRoadType } from '../map/zoom';
@@ -32,26 +32,56 @@ interface CacheEntry {
   promise: Promise<RawObject[]>;
   /** The resolved objects, once loaded (for `peek`). */
   value?: RawObject[];
-  /** Total `coords.length` across the resolved objects, or `null` while still in flight (an
-   *  in-flight entry is never evicted: its size isn't known yet, and other callers may be
-   *  awaiting the same promise). */
-  points: number | null;
+  /** The resolved objects' size (`decodedBytes`), or `null` while still in flight (an in-flight
+   *  entry is never evicted: its size isn't known yet, and other callers may be awaiting the same
+   *  promise). */
+  bytes: number | null;
+}
+
+/** About what a decoded object takes besides its points: the object, its view of the points, its
+ *  bounds (`boundsOf`) and, on average, its label's text. */
+const OBJECT_BYTES = 200;
+
+/** About how much memory decoded objects take: each object, and the buffers holding their points. */
+export function decodedBytes(objs: RawObject[]): number {
+  let bytes = objs.length * OBJECT_BYTES;
+  let last: ArrayBufferLike | null = null;
+  const seen = new Set<ArrayBufferLike>();
+  for (const { xy } of objs) {
+    if (xy.buffer === last || seen.has(xy.buffer)) continue;
+    last = xy.buffer;
+    seen.add(last);
+    bytes += last.byteLength;
+  }
+  return bytes;
+}
+
+/** The objects with their points copied into one buffer of their own, so that keeping a few
+ *  objects of a subdivision doesn't keep the points of all its others. */
+function ownPoints(objs: RawObject[]): RawObject[] {
+  const all = new Int32Array(objs.reduce((n, o) => n + o.xy.length, 0));
+  let at = 0;
+  return objs.map((o) => {
+    all.set(o.xy, at);
+    at += o.xy.length;
+    return { ...o, xy: all.subarray(at - o.xy.length, at) };
+  });
 }
 
 /**
- * Caches decoded subdivisions by key, bounded by total point count rather than entry count (a
- * fixed entry cap let level-24 data - many points per subdivision - use unbounded memory: see the
- * Plan 1 review). Concurrent `get()` calls for the same key before the load settles share one
- * in-flight promise, so two `buildTile` calls in the same worker that both need a subdivision
- * decode it once. A rejected load is not cached, so the next `get()` retries it.
+ * Caches decoded subdivisions by key, bounded by their size in bytes (`decodedBytes`) rather than
+ * entry count (a fixed entry cap let level-24 data - many points per subdivision - use unbounded
+ * memory: see the Plan 1 review). Concurrent `get()` calls for the same key before the load settles
+ * share one in-flight promise, so two `buildTile` calls in the same worker that both need a
+ * subdivision decode it once. A rejected load is not cached, so the next `get()` retries it.
  */
 export class SubdivisionCache {
   private readonly entries = new Map<string, CacheEntry>();
-  private totalPoints = 0;
+  private totalBytes = 0;
   /** Bumped by clear(): a load started before it doesn't count towards the budget after it. */
   private generation = 0;
 
-  constructor(private readonly maxPoints: number = 500_000) {}
+  constructor(private readonly maxBytes: number = 40_000_000) {}
 
   get(key: string, load: () => Promise<RawObject[]>): Promise<RawObject[]> {
     const existing = this.entries.get(key);
@@ -61,14 +91,14 @@ export class SubdivisionCache {
       this.entries.set(key, existing);
       return existing.promise;
     }
-    const entry = { points: null } as CacheEntry;
+    const entry = { bytes: null } as CacheEntry;
     const generation = this.generation;
     entry.promise = load().then(
       (objs) => {
         entry.value = objs;
-        entry.points = objs.reduce((n, o) => n + o.coords.length, 0);
+        entry.bytes = decodedBytes(objs);
         if (generation === this.generation && this.entries.get(key) === entry) {
-          this.totalPoints += entry.points;
+          this.totalBytes += entry.bytes;
           this.evict();
         }
         return objs;
@@ -91,18 +121,21 @@ export class SubdivisionCache {
   clear(): void {
     this.generation++;
     this.entries.clear();
-    this.totalPoints = 0;
+    this.totalBytes = 0;
   }
 
   private evict(): void {
     for (const [key, e] of this.entries) {
-      if (this.totalPoints <= this.maxPoints) break;
-      if (e.points === null) continue; // in-flight: unknown size, and may still be awaited elsewhere
+      if (this.totalBytes <= this.maxBytes) break;
+      if (e.bytes === null) continue; // in-flight: unknown size, and may still be awaited elsewhere
       this.entries.delete(key);
-      this.totalPoints -= e.points;
+      this.totalBytes -= e.bytes;
     }
   }
 }
+
+/** A line that only its name can show to be a road (`isRoad` needs its label's text). */
+const mayBeNamedRoad = (o: RawObject) => o.kind === 'line' && !isRoadType(o.type) && o.label !== 0 && !CONTOUR_LINE_TYPES.has(o.type);
 
 const intersects = (a: BBox, b: BBox) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
 
@@ -124,6 +157,33 @@ export function coordsBounds(coords: Array<[number, number]>): BBox {
     if (y > n) n = y;
   }
   return [w, s, e, n];
+}
+
+/** The bounds of an object's points (`RawObject.xy`). */
+export function xyBounds(xy: Int32Array): BBox {
+  let [w, s, e, n] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < xy.length; i += 2) {
+    const x = xy[i];
+    const y = xy[i + 1];
+    if (x < w) w = x;
+    if (x > e) e = x;
+    if (y < s) s = y;
+    if (y > n) n = y;
+  }
+  return [w, s, e, n];
+}
+
+/** Each object's `coordsBounds` (west, south, east, north in turn), made once per decoded
+ *  subdivision: a cached subdivision is drawn in many tiles. */
+const boundsMade = new WeakMap<RawObject[], Int32Array>();
+function boundsOf(objs: RawObject[]): Int32Array {
+  let out = boundsMade.get(objs);
+  if (!out) {
+    const all = new Int32Array(objs.length * 4);
+    objs.forEach((o, i) => all.set(xyBounds(o.xy), i * 4));
+    boundsMade.set(objs, (out = all));
+  }
+  return out;
 }
 
 function roundDedupe(points: Pt[]): Pt[] {
@@ -255,36 +315,41 @@ export function stitchLines(features: TileFeature[]): TileFeature[] {
   return out;
 }
 
-const ptKey = (p: Pt) => `${p[0]},${p[1]}`;
+/** A point's key as a number: tile coordinates are whole numbers well within ±32768. */
+const ptKey = (p: Pt) => (p[0] + 32768) * 65536 + (p[1] + 32768);
 
 /** Greedily chain polylines that share endpoints (reversing pieces as needed). */
 function joinParts(parts: Pt[][]): Pt[][] {
-  const byEnd = new Map<string, number[]>();
+  if (parts.length < 2) return parts;
+  const byEnd = new Map<number, number[]>();
   parts.forEach((part, i) => {
     for (const p of [part[0], part[part.length - 1]]) {
       const k = ptKey(p);
       (byEnd.get(k) ?? byEnd.set(k, []).get(k)!).push(i);
     }
   });
-  const used = new Array<boolean>(parts.length).fill(false);
-  const takeAt = (p: Pt): Pt[] | null => {
-    for (const i of byEnd.get(ptKey(p)) ?? []) {
+  const used = new Uint8Array(parts.length);
+  /** An unused part with an end at `p`, and whether it starts there. */
+  const takeAt = (p: Pt): [Pt[], boolean] | null => {
+    const k = ptKey(p);
+    for (const i of byEnd.get(k) ?? []) {
       if (used[i]) continue;
-      used[i] = true;
-      const part = parts[i];
-      return ptKey(part[0]) === ptKey(p) ? part : [...part].reverse();
+      used[i] = 1;
+      return [parts[i], ptKey(parts[i][0]) === k];
     }
     return null;
   };
   const chains: Pt[][] = [];
   for (let i = 0; i < parts.length; i++) {
     if (used[i]) continue;
-    used[i] = true;
+    used[i] = 1;
     // Both ways: the second turn extends from the piece's start, and turns the chain back round.
-    const chain = [...parts[i]];
+    const chain = parts[i].slice();
     for (let turn = 0; turn < 2; turn++) {
       for (let next = takeAt(chain[chain.length - 1]); next; next = takeAt(chain[chain.length - 1])) {
-        for (let k = 1; k < next.length; k++) chain.push(next[k]);
+        const [part, starts] = next;
+        if (starts) for (let k = 1; k < part.length; k++) chain.push(part[k]);
+        else for (let k = part.length - 2; k >= 0; k--) chain.push(part[k]);
       }
       chain.reverse();
     }
@@ -360,12 +425,17 @@ export async function buildTile(
     const padY = ((n - s) * BUFFER) / EXTENT;
     const query: BBox = [(w - padX) * UNITS_PER_DEG, (s - padY) * UNITS_PER_DEG, (e + padX) * UNITS_PER_DEG, (n + padY) * UNITS_PER_DEG];
     const scale = 2 ** z;
-    const project = ([mx, my]: [number, number]): Pt => {
+    const project = (mx: number, my: number): Pt => {
       const lat = ((my / UNITS_PER_DEG) * Math.PI) / 180;
       return [
         ((mx / UNITS_PER_DEG + 180) / 360 * scale - x) * EXTENT,
         ((1 - Math.asinh(Math.tan(lat)) / Math.PI) / 2 * scale - y) * EXTENT,
       ];
+    };
+    const projectAll = (xy: Int32Array): Pt[] => {
+      const out = new Array<Pt>(xy.length / 2);
+      for (let i = 0; i < out.length; i++) out[i] = project(xy[2 * i], xy[2 * i + 1]);
+      return out;
     };
     const clip: BBox = [-BUFFER, -BUFFER, EXTENT + BUFFER, EXTENT + BUFFER];
     // Polygons within half a tile around this one only contribute label context (dedupeLabels).
@@ -382,7 +452,7 @@ export async function buildTile(
     const roadBits = map.roadLevelForZoom(z);
     // Roads: the road types, and lines named as F-roads (maps that draw roads in their own types).
     const isRoad = (tile: MapTile, o: RawObject) =>
-      o.kind === 'line' && (isRoadType(o.type) || (o.label !== 0 && !CONTOUR_LINE_TYPES.has(o.type) && isFRoadName(objectName(tile, o))));
+      o.kind === 'line' && (isRoadType(o.type) || (mayBeNamedRoad(o) && isFRoadName(objectName(tile, o))));
     // Each subdivision is read in one of three views. 'all': the tile's own data. 'roads': only
     // the roads of the finer road level. 'labels': only named polygons, from around the tile, for
     // label context. The partial views are cached as their own (much smaller) entries, derived
@@ -403,44 +473,66 @@ export async function buildTile(
     const isNamedPolygon = (o: RawObject) => o.kind === 'polygon' && o.label !== 0;
     const resolved = new Map<Entry, RawObject[]>();
     await Promise.all(entries.map(async (e) => {
-      const decode = async () => {
-        const bytes = await map.readSubdivision(e.tile, e.sd);
+      // A partial view that isn't derived from the full entry decodes only the kind it keeps
+      // (cached under its own key, never as the full entry).
+      // Labels are looked up below, only for the objects this tile names.
+      const decode = async (kinds?: number) => {
         const stats = { sections: 0, badSections: 0 };
-        const decoded = decodeSubdivision(bytes, e.sd, stats);
+        const decoded = await map.decode(e.tile, e.sd, { stats, kinds, labels: false });
         badSections += stats.badSections;
         return decoded;
       };
+      const roads = async (objs: RawObject[]) => {
+        const lines = objs.filter((o) => o.kind === 'line');
+        await map.withLabels(e.tile, lines.filter(mayBeNamedRoad));
+        return ownPoints(lines.filter((o) => isRoad(e.tile, o))
+          .map((o) => ({ ...o, xy: packed(simplifyLine(pairs(o.xy), EARLY_ROAD_TOLERANCE)) })));
+      };
       const objs = e.view === 'all'
-        ? await cache.get(e.key, decode)
+        ? await cache.get(e.key, () => decode())
         : await cache.get(`${e.key}|${e.view}`, async () =>
           e.view === 'roads'
-            ? (cache.peek(e.key) ?? (await decode())).filter((o) => isRoad(e.tile, o))
-              .map((o) => ({ ...o, coords: simplifyLine(o.coords, EARLY_ROAD_TOLERANCE) }))
-            : (cache.peek(e.key) ?? (await decode())).filter(isNamedPolygon));
+            ? roads(cache.peek(e.key) ?? (await decode(DECODE_LINES)))
+            : ownPoints((cache.peek(e.key) ?? (await decode(DECODE_POLYGONS))).filter(isNamedPolygon)));
       resolved.set(e, objs);
+    }));
+
+    // Where each object lies: in the tile, and (an area) near enough for its label to count.
+    const overlapsAt = (b: Int32Array, i: number, q: BBox) => b[i * 4] <= q[2] && b[i * 4 + 2] >= q[0] && b[i * 4 + 1] <= q[3] && b[i * 4 + 3] >= q[1];
+    const inTileAt = (b: Int32Array, i: number) => overlapsAt(b, i, query);
+    const nearAt = (b: Int32Array, i: number) => overlapsAt(b, i, labelQuery);
+    // The labels of the objects named below, looked up together (a cached object keeps its text).
+    await Promise.all(entries.map((e) => {
+      const objs = resolved.get(e)!;
+      const b = boundsOf(objs);
+      const early = e.view === 'all' && roadBits !== undefined;
+      return map.withLabels(e.tile, objs.filter((o, i) => o.text === undefined
+        && ((early && mayBeNamedRoad(o)) || inTileAt(b, i) || (o.kind === 'polygon' && nearAt(b, i)))));
     }));
 
     for (const e of entries) {
       const { tile } = e;
-      for (const obj of resolved.get(e)!) {
+      const objs = resolved.get(e)!;
+      const allBounds = boundsOf(objs);
+      for (const [i, obj] of objs.entries()) {
         // With early roads, the tile's own level supplies everything but roads (the road level
         // supplies those, so each road is drawn once).
         if (e.view === 'all' && roadBits !== undefined && isRoad(tile, obj)) continue;
-        const bounds = coordsBounds(obj.coords);
-        const inTile = intersects(bounds, query);
-        const name = obj.kind === 'polygon' && intersects(bounds, labelQuery) ? objectName(tile, obj) : null;
+        const [bw, bs, be, bn] = [allBounds[i * 4], allBounds[i * 4 + 1], allBounds[i * 4 + 2], allBounds[i * 4 + 3]];
+        const inTile = inTileAt(allBounds, i);
+        const name = obj.kind === 'polygon' && nearAt(allBounds, i) ? objectName(tile, obj) : null;
+        const pts = name || inTile ? projectAll(obj.xy) : [];
         if (name) {
           // One label per polygon, not one per tile it crosses: anchor it on the whole polygon and
           // emit it only from the tile that holds the anchor; the rest is context for dedupeLabels.
-          const anchor = polygonLabelAnchor(obj.coords);
-          const [ax, ay] = project(anchor);
+          const anchor = polygonLabelAnchor(pairs(obj.xy));
+          const [ax, ay] = project(anchor[0], anchor[1]);
           const label: TileFeature = { type: 1, geometry: [[Math.round(ax), Math.round(ay)]], tags: { t: obj.type, name } };
-          labelInfo.set(label, { size: ringArea(obj.coords.map(project)), bbox: bounds, anchor });
+          labelInfo.set(label, { size: ringArea(pts), bbox: [bw, bs, be, bn], anchor });
           if (inTile && ax >= 0 && ax < EXTENT && ay >= 0 && ay < EXTENT) layers.polygons.push(label);
           else labelContext.push(label);
         }
         if (!inTile) continue;
-        const pts = obj.coords.map(project);
         let feature: TileFeature | null = null;
         if (obj.kind === 'point') {
           const [px, py] = pts[0];

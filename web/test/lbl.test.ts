@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { ImgContainer } from '../src/img/container';
-import { formatLabel, LabelTable } from '../src/img/lbl';
-import { decodeSubdivision, type Chunk } from '../src/img/rgn';
+import { formatLabel, inMemory, LabelCache, LabelTable } from '../src/img/lbl';
+import { decodeSubdivision, type Chunk, type RawObject } from '../src/img/rgn';
 import { parseTre } from '../src/img/tre';
 import { bytesOf, concat } from './helpers/builders';
 import { nodeSource } from './helpers/nodeSource';
@@ -33,37 +33,55 @@ describe('formatLabel', () => {
   test('control bytes are dropped', () => expect(formatLabel(new Uint8Array([0x01, 0x41, 0x1b, 0x42]), cp1252)).toBe('A B'));
 });
 
+const table = (lbl: Uint8Array, net: Uint8Array | null) => LabelTable.open(inMemory(lbl), net && inMemory(net));
+
 describe('LabelTable', () => {
-  test('lookup by offset and POI', () => {
-    const table = new LabelTable(makeLbl([bytesOf('Vatn'), bytesOf('Hraun')], 9, new Uint8Array([6, 0, 0])), null);
-    expect(table.text(1, 'lbl')).toBe('Vatn');
-    expect(table.text(6, 'lbl')).toBe('Hraun');
-    expect(table.text(0, 'lbl')).toBeNull();
-    expect(table.text(0, 'poi')).toBe('Hraun');
+  test('lookup by offset and POI', async () => {
+    const t = await table(makeLbl([bytesOf('Vatn'), bytesOf('Hraun')], 9, new Uint8Array([6, 0, 0])), null);
+    expect(await t.text(1, 'lbl')).toBe('Vatn');
+    expect(await t.text(6, 'lbl')).toBe('Hraun');
+    expect(await t.text(0, 'lbl')).toBeNull();
+    expect(await t.text(0, 'poi')).toBe('Hraun');
+    expect(await t.text(5000, 'lbl')).toBeNull(); // past the end
   });
 
-  test('NET label', () => {
+  test('NET label', async () => {
     const net = new Uint8Array(0x20 + 3);
     net.set(bytesOf('GARMIN NET'), 2);
     new DataView(net.buffer).setUint32(0x15, 0x20, true);
     net.set([1, 0, 0x80], 0x20);
-    expect(new LabelTable(makeLbl([bytesOf('Hringvegur')]), net).text(0, 'net')).toBe('Hringvegur');
+    expect(await (await table(makeLbl([bytesOf('Hringvegur')]), net)).text(0, 'net')).toBe('Hringvegur');
   });
 
-  test('all of a road\'s labels: its name and its number (Freizeitkarte gives the number second)', () => {
+  test('all of a road\'s labels: its name and its number (Freizeitkarte gives the number second)', async () => {
     const net = new Uint8Array(0x20 + 9);
     net.set(bytesOf('GARMIN NET'), 2);
     new DataView(net.buffer).setUint32(0x15, 0x20, true);
     // Road 0: labels at offsets 1 and 15 (the last flagged with bit 23); road 6: one label.
     net.set([1, 0, 0, 15, 0, 0x80, 15, 0, 0x80], 0x20);
-    const table = new LabelTable(makeLbl([bytesOf('Landmannaleid'), bytesOf('F208')]), net);
-    expect(table.roadTexts(0)).toEqual(['Landmannaleid', 'F208']);
-    expect(table.text(0, 'net')).toBe('Landmannaleid');
-    expect(table.roadTexts(6)).toEqual(['F208']);
-    expect(new LabelTable(makeLbl([bytesOf('X')]), null).roadTexts(0)).toEqual([]);
+    const t = await table(makeLbl([bytesOf('Landmannaleid'), bytesOf('F208')]), net);
+    expect(await t.roadTexts(0)).toEqual(['Landmannaleid', 'F208']);
+    expect(await t.text(0, 'net')).toBe('Landmannaleid');
+    expect(await t.roadTexts(6)).toEqual(['F208']);
+    expect(await (await table(makeLbl([bytesOf('X')]), null)).roadTexts(0)).toEqual([]);
   });
 
-  test('unsupported encoding', () => expect(() => new LabelTable(makeLbl([bytesOf('X')], 6), null)).toThrow(/encoding 6/));
+  test('a label across a block boundary, and objects resolved in one batch', async () => {
+    const t = await table(makeLbl([bytesOf('Vatn'), new Uint8Array(5000).fill(0xc1)]), null);
+    const objs: RawObject[] = [1, 6, 0].map((label) => ({ kind: 'point', type: 0, label, labelSrc: 'lbl', xy: new Int32Array(2), text: undefined }));
+    await t.resolve(objs);
+    expect(objs.map((o) => o.text)).toEqual(['Vatn', 'Á'.repeat(5000), null]);
+  });
+
+  test('the shared cache is bounded', async () => {
+    const cache = new LabelCache(2);
+    const t = await LabelTable.open(inMemory(makeLbl([bytesOf('A'), bytesOf('B'), bytesOf('C')])), null, cache);
+    for (const [off, text] of [[1, 'A'], [3, 'B'], [5, 'C']] as const) expect(await t.text(off, 'lbl')).toBe(text);
+    expect(cache.get(1)).toBeUndefined(); // the oldest was dropped
+    expect(cache.get(5)).toBe('C');
+  });
+
+  test('unsupported encoding', () => expect(table(makeLbl([bytesOf('X')], 6), null)).rejects.toThrow(/encoding 6/));
 });
 
 describe.skipIf(!hasRealData)('labels on real data', () => {
@@ -72,14 +90,13 @@ describe.skipIf(!hasRealData)('labels on real data', () => {
     const img = await ImgContainer.open(src);
     const rgn = await img.read('14057403.RGN');
     const t = parseTre(await img.read('14057403.TRE'), rgn.subarray(0, 0x7d));
-    const table = new LabelTable(await img.read('14057403.LBL'), await img.read('14057403.NET'));
+    const labels = await LabelTable.open(inMemory(await img.read('14057403.LBL')), inMemory(await img.read('14057403.NET')));
     const c: Chunk = { bytes: rgn, base: 0 };
     const names = new Set<string>();
     for (const sd of t.subdivisions.slice(938, 1400)) {
-      for (const o of decodeSubdivision({ main: c, ext: [c, c, c] }, sd, { sections: 0, badSections: 0 })) {
-        const n = table.text(o.label, o.labelSrc);
-        if (n) names.add(n);
-      }
+      const objs = decodeSubdivision({ main: c, ext: [c, c, c] }, sd, { sections: 0, badSections: 0 });
+      await labels.resolve(objs);
+      for (const o of objs) if (o.text) names.add(o.text);
     }
     expect(names.has('Gönguskarð')).toBe(true);
     expect(names.has('Drífandi')).toBe(true);

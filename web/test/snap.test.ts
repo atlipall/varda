@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { decodeSubdivision, type RawObject } from '../src/img/rgn';
+import type { RawObject } from '../src/img/rgn';
 import type { Subdivision } from '../src/img/tre';
 import { GarminMap, type MapTile } from '../src/map/garminMap';
 import { NodeIndex, type RoadGraph } from '../src/routing/graph';
@@ -23,7 +23,7 @@ describe.skipIf(!hasRealData || !existsSync(F_ROAD_DETAILED))('planRoute on real
   const decode = (tile: MapTile, sd: Subdivision) => {
     const key = `${tile.id}:${sd.index}`;
     let p = cache.get(key);
-    if (!p) cache.set(key, (p = map.readSubdivision(tile, sd).then((b) => decodeSubdivision(b, sd, { sections: 0, badSections: 0 }))));
+    if (!p) cache.set(key, (p = map.decode(tile, sd)));
     return p;
   };
   const plan = (from: [number, number], to: [number, number], allow: boolean) => {
