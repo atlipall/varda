@@ -38,6 +38,22 @@ describe('PlaceIndex', () => {
     expect(idx.search('la', 2)).toHaveLength(2);
   });
 
+  test('words: a later word, a query of several words, and a word start after a mid-word match', () => {
+    const streets = new PlaceIndex([
+      { name: 'Hveragerði', lon: 2, lat: 2, kind: 'point', type: 0x0400 },
+      { name: 'Nýja Vestur Gata', lon: 0, lat: 0, kind: 'point', type: 0x0400 },
+      { name: 'Vesturgata', lon: 0, lat: 0, kind: 'point', type: 0x0400 },
+      { name: 'Barbara Bar', lon: 0, lat: 0, kind: 'point', type: 0x0400 },
+    ]);
+    // Several words match from a word's start, like one word (ahead of names that only contain it).
+    expect(streets.search('vestur g').map((p) => p.name)).toEqual(['Nýja Vestur Gata']);
+    expect(streets.search('ga').map((p) => p.name)).toEqual(['Nýja Vestur Gata']); // two letters: word starts only
+    expect(streets.search('gat').map((p) => p.name)).toEqual(['Nýja Vestur Gata', 'Vesturgata']);
+    expect(streets.search('ba').map((p) => p.name)).toEqual(['Barbara Bar']);
+    expect(streets.search('bar b').map((p) => p.name)).toEqual([]);
+    expect(streets.search('ra b').map((p) => p.name)).toEqual(['Barbara Bar']); // inside the name: 3+ letters
+  });
+
   test('with a reference point, equally good matches within 25 km come first, nearest first', () => {
     const near = new PlaceIndex([
       { name: 'Svartá', lon: -15, lat: 65, kind: 'line', type: 0x1f },

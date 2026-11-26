@@ -104,17 +104,36 @@ describe('stitchLines', () => {
     expect(out[0].tags).toEqual({ t: 0x1f, name: 'Þjórsá' });
   });
 
-  test('keeps different names, different types, unnamed lines and contours apart', () => {
+  test('keeps different names, different types, named and unnamed, and contours apart', () => {
     const fs = [
       line(0x1f, 'Þjórsá', [[0, 0], [10, 0]]),
       line(0x18, 'Þjórsá', [[10, 0], [20, 0]]),
       line(0x1f, 'Hvítá', [[10, 0], [20, 0]]),
       line(0x1f, undefined, [[0, 0], [10, 0]]),
-      line(0x1f, undefined, [[10, 0], [20, 0]]),
+      line(0x18, undefined, [[10, 0], [20, 0]]),
       line(0x20, '400', [[0, 0], [10, 0]]),
       line(0x20, '400', [[10, 0], [20, 0]]),
+      line(0x20, undefined, [[0, 5], [10, 5]]),
+      line(0x20, undefined, [[10, 5], [20, 5]]),
     ];
     expect(stitchLines(fs)).toHaveLength(fs.length);
+  });
+
+  test('joins the unnamed pieces of a type too (a big town\'s streets come as thousands of 2-pixel pieces)', () => {
+    const out = stitchLines([
+      line(0x10107, undefined, [[0, 0], [10, 0]]),
+      line(0x10107, undefined, [[20, 0], [10, 0]]),
+      line(0x10107, undefined, [[20, 0], [20, 10]]),
+      line(0x10107, undefined, [[100, 100], [110, 100]]), // another street: a part of its own
+      line(0x10107, 'Vestergade', [[20, 10], [20, 20]]), // named: not joined to the unnamed ones
+    ]);
+    expect(out).toHaveLength(2);
+    const unnamed = out.find((f) => f.tags.name === undefined)!;
+    expect(unnamed.tags).toEqual({ t: 0x10107 });
+    const parts = unnamed.geometry as Array<Array<[number, number]>>;
+    expect(parts.map((p) => p.length).sort()).toEqual([2, 4]);
+    const chain = parts.find((p) => p.length === 4)!;
+    expect(chain[0][0] === 0 ? chain : [...chain].reverse()).toEqual([[0, 0], [10, 0], [20, 0], [20, 10]]);
   });
 });
 

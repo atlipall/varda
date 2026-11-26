@@ -233,21 +233,23 @@ export function polygonLabelAnchor(ring: Array<[number, number]>): [number, numb
  * Garmin stores a river or road as many short pieces with the same name, and MapLibre labels each
  * piece on its own, so one river got several labels close together. Join the pieces of each named
  * line (same type and name) that touch end to end into continuous lines, so labels are spaced
- * along the whole line by `symbol-spacing`. Unnamed lines and contours pass through unchanged
- * (contours keep a label per ring: equal elevations on different hills are different lines).
+ * along the whole line by `symbol-spacing`. The unnamed pieces of a type are joined the same way:
+ * zoomed out over a big town its streets are thousands of pieces a pixel or two long, each drawn
+ * with its own end caps (12,000 in one zoom-10 tile of Copenhagen). Contours pass through
+ * unchanged (they keep a label per ring: equal elevations on different hills are different lines).
  */
 export function stitchLines(features: TileFeature[]): TileFeature[] {
   const out: TileFeature[] = [];
   const groups = new Map<string, { tags: TileFeature['tags']; parts: Pt[][] }>();
   for (const f of features) {
     const name = f.tags.name;
-    if (name === undefined || CONTOUR_LINE_TYPES.has(f.tags.t as number)) {
+    if (CONTOUR_LINE_TYPES.has(f.tags.t as number)) {
       out.push(f);
       continue;
     }
-    const key = `${f.tags.t}|${name}`;
+    const key = name === undefined ? `u${f.tags.t}` : `n${f.tags.t}|${name}`;
     const g = groups.get(key) ?? groups.set(key, { tags: f.tags, parts: [] }).get(key)!;
-    g.parts.push(...(f.geometry as Pt[][]));
+    for (const part of f.geometry as Pt[][]) g.parts.push(part); // no spread: a type's parts can be tens of thousands
   }
   for (const { tags, parts } of groups.values()) out.push({ type: 2, geometry: joinParts(parts), tags });
   return out;
@@ -278,9 +280,14 @@ function joinParts(parts: Pt[][]): Pt[][] {
   for (let i = 0; i < parts.length; i++) {
     if (used[i]) continue;
     used[i] = true;
-    let chain = parts[i];
-    for (let next = takeAt(chain[chain.length - 1]); next; next = takeAt(chain[chain.length - 1])) chain = chain.concat(next.slice(1));
-    for (let prev = takeAt(chain[0]); prev; prev = takeAt(chain[0])) chain = [...prev].reverse().concat(chain.slice(1));
+    // Both ways: the second turn extends from the piece's start, and turns the chain back round.
+    const chain = [...parts[i]];
+    for (let turn = 0; turn < 2; turn++) {
+      for (let next = takeAt(chain[chain.length - 1]); next; next = takeAt(chain[chain.length - 1])) {
+        for (let k = 1; k < next.length; k++) chain.push(next[k]);
+      }
+      chain.reverse();
+    }
     chains.push(chain);
   }
   return chains;
@@ -463,9 +470,10 @@ export async function buildTile(
     }
   }
   // Points closer than a quarter pixel to the line or outline change nothing on screen.
+  // Each joined line on its own: a type's unnamed lines are one feature with a part per line.
   layers.lines = stitchLines(layers.lines)
-    .filter((f) => !subPixel(f.geometry as Pt[][]))
-    .map((f) => ({ ...f, geometry: (f.geometry as Pt[][]).map((part) => simplifyLine(part, PIXEL / 4)) }));
+    .map((f) => ({ ...f, geometry: (f.geometry as Pt[][]).filter((part) => !subPixel([part])).map((part) => simplifyLine(part, PIXEL / 4)) }))
+    .filter((f) => f.geometry.length > 0);
   dedupeLabels(layers.polygons, (f) => labelInfo.get(f), labelContext);
   // Labels another tile shows (their name dropped) needn't be sent at all.
   layers.polygons = layers.polygons.filter((f) => f.type !== 1 || f.tags.name !== undefined);

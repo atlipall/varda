@@ -9,19 +9,44 @@ const HALO = { 'text-halo-color': '#ffffff', 'text-halo-width': 1.2 };
 const CONTOURS = [...CONTOUR_LINE_TYPES].sort((a, b) => a - b);
 const byType = (t: number) => ['==', ['get', 't'], t];
 
-function lineLayer(id: string, t: number | null, color: string, width: number, dash: number[] | null, filter?: unknown): LayerSpecification {
-  // Zoomed out, lines thin to 40% of their width, but no thinner than a pixel (as a Garmin draws
-  // them): a map styled with 1-pixel lines would otherwise lose its roads there. Contour lines may
-  // go to half a pixel, so the hills don't crowd out the rest.
+/** Lines drawn thinner than this get flat ends and plain joins. */
+const ROUND_FROM_PX = 3;
+
+/** A line's width in pixels by zoom: zoomed out, lines thin to 40% of their width, but no thinner
+ *  than a pixel (as a Garmin draws them): a map styled with 1-pixel lines would otherwise lose its
+ *  roads there. Contour lines may go to half a pixel, so the hills don't crowd out the rest. */
+function widths(t: number | null, width: number): [at8: number, at14: number] {
   const min = t !== null && CONTOUR_LINE_TYPES.has(t) ? 0.5 : 1;
+  return [Math.max(min, width * 0.4), Math.max(1, width)];
+}
+
+/**
+ * Round ends and joins only where they show: from the zoom at which the line (its widest drawn
+ * part, the casing when it has one) is ROUND_FROM_PX wide. Round ones cost MapLibre about
+ * three times the triangles, and a town's streets are mostly 1-2 px hairlines (a screen of
+ * Copenhagen at zoom 10: 500,000 line triangles with round ends, 180,000 without).
+ */
+function ends([at8, at14]: [number, number], dash: number[] | null): Record<string, unknown> {
+  const choose = (flat: string): unknown => {
+    if (at14 < ROUND_FROM_PX) return flat;
+    if (at8 >= ROUND_FROM_PX) return 'round';
+    return ['step', ['zoom'], flat, Math.ceil(8 + (6 * (ROUND_FROM_PX - at8)) / (at14 - at8)), 'round'];
+  };
+  return { 'line-join': dash ? 'round' : choose('miter'), 'line-cap': dash ? 'butt' : choose('butt') };
+}
+
+/** `endsWidth`: the width the ends and joins go by, when not the line's own (the casing's for both
+ *  a line and its casing, so the two share one layout and MapLibre builds the line once). */
+function lineLayer(id: string, t: number | null, color: string, width: number, dash: number[] | null, opts: { filter?: unknown; endsWidth?: number } = {}): LayerSpecification {
+  const [at8, at14] = widths(t, width);
   const paint: Record<string, unknown> = {
     'line-color': color,
-    'line-width': ['interpolate', ['linear'], ['zoom'], 8, Math.max(min, width * 0.4), 14, Math.max(1, width)],
+    'line-width': ['interpolate', ['linear'], ['zoom'], 8, at8, 14, at14],
   };
   if (dash) paint['line-dasharray'] = dash;
   return {
-    id, type: 'line', source: 'garmin', 'source-layer': 'lines', filter: filter ?? byType(t!),
-    layout: { 'line-join': 'round', 'line-cap': dash ? 'butt' : 'round' }, paint,
+    id, type: 'line', source: 'garmin', 'source-layer': 'lines', filter: opts.filter ?? byType(t!),
+    layout: ends(widths(t, opts.endsWidth ?? width), dash), paint,
   } as LayerSpecification;
 }
 
@@ -73,16 +98,17 @@ export function buildStyle(typ: Typ, opts: StyleOptions): { style: StyleSpecific
     const [color, width, dash] = LINE_STYLES.get(t) ?? DEFAULT_LINE;
     return { color, width, borderColor: null, borderWidth: 0, dash };
   };
+  const endsWidth = (s: LineStyle) => (s.borderColor ? Math.max(s.width, s.borderWidth) : s.width);
   const [dc, dw] = DEFAULT_LINE;
-  layers.push(lineLayer('ln-other', null, dc, dw, null, ['!', ['in', ['get', 't'], ['literal', lineTypes]]]));
+  layers.push(lineLayer('ln-other', null, dc, dw, null, { filter: ['!', ['in', ['get', 't'], ['literal', lineTypes]]] }));
   const drawn = lineTypes.filter((t) => !lineStyle(t).hidden);
   for (const t of drawn) {
     const s = lineStyle(t);
-    if (s.borderColor) layers.push(lineLayer(`ln-${t}-casing`, t, s.borderColor, s.borderWidth, null));
+    if (s.borderColor) layers.push(lineLayer(`ln-${t}-casing`, t, s.borderColor, s.borderWidth, null, { endsWidth: endsWidth(s) }));
   }
   for (const t of drawn) {
     const s = lineStyle(t);
-    layers.push(lineLayer(`ln-${t}`, t, s.color, s.width, s.dash));
+    layers.push(lineLayer(`ln-${t}`, t, s.color, s.width, s.dash, { endsWidth: endsWidth(s) }));
   }
 
   const isContour = ['in', ['get', 't'], ['literal', CONTOURS]];

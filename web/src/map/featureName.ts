@@ -14,7 +14,9 @@ export function featureNameAt(map: maplibregl.Map, p: maplibregl.Point): string 
   };
   const box = (r: number): [maplibregl.PointLike, maplibregl.PointLike] => [[p.x - r, p.y - r], [p.x + r, p.y + r]];
   let best: { name: string; d: number } | null = null;
-  for (const f of map.queryRenderedFeatures(box(30))) {
+  // Named features only: a town's unnamed streets are thousands of parts to hand over.
+  const withName = { filter: ['has', 'name'] as maplibregl.FilterSpecification };
+  for (const f of map.queryRenderedFeatures(box(30), withName)) {
     const name = named(f, 'name');
     if (!name || f.sourceLayer !== 'points' || f.geometry.type !== 'Point') continue;
     const q = map.project(f.geometry.coordinates as [number, number]);
@@ -22,11 +24,11 @@ export function featureNameAt(map: maplibregl.Map, p: maplibregl.Point): string 
     if (d <= 30 && (!best || d < best.d)) best = { name, d };
   }
   if (best) return best.name;
-  for (const f of map.queryRenderedFeatures(box(12))) {
+  for (const f of map.queryRenderedFeatures(box(12), withName)) {
     const name = f.sourceLayer === 'lines' ? named(f, 'name') : null;
     if (name) return name;
   }
-  for (const f of map.queryRenderedFeatures(p)) {
+  for (const f of map.queryRenderedFeatures(p, { filter: ['has', 'n'] })) {
     const name = f.sourceLayer === 'polygons' ? named(f, 'n') : null;
     if (name) return name;
   }

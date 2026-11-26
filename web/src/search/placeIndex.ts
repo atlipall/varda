@@ -7,27 +7,23 @@ const NEARBY_KM = 25;
 /** NEARBY_KM as a squared equirectangular distance in degrees (see `nearness`). */
 const NEARBY_DEG2 = (NEARBY_KM / 111.2) ** 2;
 
-interface Entry {
-  place: Place;
-  norm: string;
-  words: string[];
-}
-
-/** Entries are sorted once by (kind rank, normalized-name length, name); a search then scans in
+/** Places are sorted once by (kind rank, normalized-name length, name); a search then scans in
  *  that order, bucketing hits by match score, so within a score the hits come out already ranked
  *  and at most `limit` per score are kept. The result equals sorting every hit by (score, kind
  *  rank, length, name) — including ties, since both sorts are stable over the input order — but
- *  costs no per-query sort and stops early once `limit` exact-prefix hits are found. */
+ *  costs no per-query sort and stops early once `limit` exact-prefix hits are found.
+ *  Kept small for big maps (Denmark has 617,000 places): a normalized name per place and the
+ *  sorted order as numbers, no object or word list per place. */
 export class PlaceIndex {
-  private readonly entries: Entry[];
+  /** Normalized names, by the place's position in `places`. */
+  private readonly norms: string[];
+  /** Positions in `places`, in search order. */
+  private readonly order: Int32Array;
 
   constructor(readonly places: Place[]) {
-    this.entries = places
-      .map((place) => {
-        const norm = normalize(place.name);
-        return { place, norm, words: norm.split(' ') };
-      })
-      .sort((a, b) => KIND_RANK[a.place.kind] - KIND_RANK[b.place.kind] || a.norm.length - b.norm.length || a.place.name.localeCompare(b.place.name));
+    const norms = (this.norms = places.map((p) => normalize(p.name)));
+    this.order = Int32Array.from(places.keys()).sort((a, b) =>
+      KIND_RANK[places[a].kind] - KIND_RANK[places[b].kind] || norms[a].length - norms[b].length || places[a].name.localeCompare(places[b].name) || a - b);
   }
 
   /** With `near`: exact name matches, then name prefixes, word prefixes and substrings; within
@@ -40,9 +36,9 @@ export class PlaceIndex {
       // An exact name match gets its own top bucket, so nearby longer names that merely start
       // with the query don't bury it (searching the town's name finds the town first).
       const buckets: Place[][] = [[], [], [], []];
-      for (const e of this.entries) {
-        const score = this.score(e, q);
-        if (score >= 0) buckets[score === 0 && e.norm === q ? 0 : score + 1].push(e.place);
+      for (const i of this.order) {
+        const score = this.score(this.norms[i], q);
+        if (score >= 0) buckets[score === 0 && this.norms[i] === q ? 0 : score + 1].push(this.places[i]);
       }
       // Within a bucket: nearby hits (within NEARBY_KM), nearest first, then the rest in static
       // order, so a distant but well-known name is not buried under every minor nearby match.
@@ -60,21 +56,22 @@ export class PlaceIndex {
       ].slice(0, limit);
     }
     const buckets: Place[][] = [[], [], []];
-    for (const e of this.entries) {
-      const score = this.score(e, q);
+    for (const i of this.order) {
+      const score = this.score(this.norms[i], q);
       if (score < 0) continue;
       const b = buckets[score];
-      if (b.length < limit) b.push(e.place);
+      if (b.length < limit) b.push(this.places[i]);
       if (score === 0 && b.length >= limit) break; // nothing can outrank a full set of prefix hits
     }
     return buckets.flat().slice(0, limit);
   }
 
   /** 0 = name prefix, 1 = word prefix, 2 = substring (3+ chars), -1 = no match. */
-  private score(e: Entry, q: string): number {
-    if (e.norm.startsWith(q)) return 0;
-    if (e.words.some((w) => w.startsWith(q))) return 1;
-    if (q.length >= 3 && e.norm.includes(q)) return 2;
-    return -1;
+  private score(norm: string, q: string): number {
+    const at = norm.indexOf(q);
+    if (at <= 0) return at;
+    // Words are separated by single spaces (see normalize).
+    if (norm[at - 1] === ' ' || norm.includes(` ${q}`, at)) return 1;
+    return q.length >= 3 ? 2 : -1;
   }
 }

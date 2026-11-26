@@ -47,6 +47,27 @@ describe('buildStyle', () => {
     expect(ids).toContain('ln-1');
   });
 
+  test('round ends and joins only from the zoom where a line is drawn 3 px wide; a casing follows its line', () => {
+    const typ: Typ = {
+      ...emptyTyp(),
+      lines: new Map([
+        [0x10107, { color: '#888888', width: 1, borderColor: null, borderWidth: 0, dash: null }], // never 3 px
+        [0x04, { color: '#ffff00', width: 5, borderColor: null, borderWidth: 0, dash: null }], // 2 px at zoom 8, 3 px at zoom 10
+        [0x01, { color: '#ff0000', width: 8, borderColor: null, borderWidth: 0, dash: null }], // 3.2 px at zoom 8 already
+        [0x16, { color: '#ffffff', width: 2, borderColor: '#000000', borderWidth: 5, dash: null }], // by its casing's width
+        [0x1f, { color: '#0000ff', width: 8, borderColor: null, borderWidth: 0, dash: [4, 2] }], // dashed: flat ends
+      ]),
+    };
+    const layout = (id: string) => (buildStyle(typ, OPTS).style.layers.find((l) => l.id === id) as { layout: Record<string, unknown> }).layout;
+    const from10 = (flat: string) => ['step', ['zoom'], flat, 10, 'round'];
+    expect(layout(`ln-${0x10107}`)).toEqual({ 'line-join': 'miter', 'line-cap': 'butt' });
+    expect(layout('ln-4')).toEqual({ 'line-join': from10('miter'), 'line-cap': from10('butt') });
+    expect(layout('ln-1')).toEqual({ 'line-join': 'round', 'line-cap': 'round' });
+    expect(layout('ln-22')).toEqual(layout('ln-22-casing')); // one layout: MapLibre builds the line once for both
+    expect(layout('ln-22')).toEqual({ 'line-join': from10('miter'), 'line-cap': from10('butt') });
+    expect(layout('ln-31')).toEqual({ 'line-join': 'round', 'line-cap': 'butt' });
+  });
+
   test('a hidden line type is not drawn, but its names are', () => {
     const typ: Typ = { ...emptyTyp(), lines: new Map([[0x2a, { color: '#ffffff', width: 1, borderColor: null, borderWidth: 0, dash: null, hidden: true }]]) };
     const { style } = buildStyle(typ, OPTS);
