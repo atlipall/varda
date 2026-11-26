@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { storageRoot } from '../channel';
 import { parseChoices, parseSetJson, type Choices } from './library';
-import { CHOICES, currentDirName, isCompleteDir, isMapDir, isMissing, listEntries, POINTER, readTextFile as readText, subdir } from './layout';
+import { CHOICES, currentDirName, isCompleteDir, isMapDir, isMissing, listEntries, OLD_PLACES, PLACES, POINTER, readTextFile as readText, subdir } from './layout';
 
 /** Writing to the stored maps' files, for the storage workers (sync access handles are only there).
  *  Nothing here reads a map: the small changes (which map is current, a name, removing a map) run
@@ -70,7 +70,7 @@ export async function removeMap(id: string): Promise<void> {
   if (!dir) return;
   const dem = await subdir(dir, 'dem');
   if (dem && parseSetJson(await readText(dem, 'set.json'))) {
-    for (const f of ['meta.json', 'map.img', 'places.json', 'dem-overview.bin']) await removeEntry(dir, f);
+    for (const f of ['meta.json', 'map.img', PLACES, OLD_PLACES, 'dem-overview.bin']) await removeEntry(dir, f);
   } else await removeEntry(root, id, true);
   await updateChoices((c) => void delete c.maps[id]);
 }

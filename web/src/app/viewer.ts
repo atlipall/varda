@@ -1,10 +1,10 @@
 import * as maplibregl from 'maplibre-gl';
 import type { RoadClasses } from '../routing/roadClass';
-import { collapseNearby, describePlace, nearName, titleCase, townsOf } from '../search/describe';
-import { PlaceIndex } from '../search/placeIndex';
+import { collapseNearby, describePlace, titleCase, type Town } from '../search/describe';
+import type { NearIndex } from '../search/nearIndex';
 import type { Place } from '../search/places';
-import { decodePlacesCache, encodePlacesCache } from '../search/placesCache';
-import { cacheKey, changeChoices, loadLibrary, loadMap, readText, removeMap, setCurrent, writeText, type Library, type Stored } from '../storage/store';
+import { PlacesClient } from '../search/placesClient';
+import { cacheKey, changeChoices, loadLibrary, loadMap, removeMap, setCurrent, type Library } from '../storage/store';
 import { contains, elevationFor, hillshadingText, mapName, type MapInfo } from '../storage/library';
 import { FONT_REGULAR } from '../style/buildStyle';
 import { preloadImages } from '../ui/images';
@@ -55,7 +55,7 @@ declare global {
       perf: PerfStats;
       ready: boolean;
       placesReady: boolean;
-      search: (q: string) => Place[] | null;
+      search: (q: string) => Promise<Place[]> | null;
       samples: typeof SAMPLES;
       tracks: TracksPanel | null;
       overlays: OverlayMap | null;
@@ -211,8 +211,8 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   let saveHere: SaveHere | null = null;
   /** Adding a photo where you are (its button left of save-a-pin). */
   let photoHere: PhotoHere | null = null;
-  /** The map's named places once the place index is loaded (for naming a pin where you are). */
-  let places: Place[] = [];
+  /** The map's named points once the place index is loaded (for naming a pin where you are). */
+  let near: NearIndex | null = null;
   locate.onActiveChange = (active) => {
     locating = active;
     syncAwake();
@@ -369,6 +369,8 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     // one shown comes back; if even that fails, the app starts again.
     gen += 1;
     prev.pool.dispose();
+    // Another map's places too (its worker may be reading the whole map), before the next opens.
+    if (prev.stored.id !== id) dropPlaces();
     let next: MapSource;
     try {
       next = await openSource(stored, gen, glyphsUrl());
@@ -380,13 +382,13 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
         throw err;
       }
       put(back, prev);
-      if (!index) startPlaces(back);
+      startPlaces(back);
       throw err;
     }
     const sameMap = prev.stored.id === id;
     put(next, prev);
-    // The place index was being read by the workers just closed: read it again.
-    if (sameMap && !index) startPlaces(next);
+    // The place index again if it was put away (while adding a map).
+    if (sameMap) startPlaces(next);
     if (!sameMap) {
       setCredit(next.meta.description);
       const c = map.getCenter();
@@ -410,6 +412,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     const before = src;
     gen += 1;
     before.pool.dispose();
+    dropPlaces();
     try {
       await store();
     } finally {
@@ -441,6 +444,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     if (!last) return removeMap(id);
     closed = true;
     pool.dispose();
+    dropPlaces();
     try {
       await removeMap(id);
     } finally {
@@ -448,21 +452,34 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     }
   };
 
-  const app = { map, perf, ready: false, placesReady: false, search: (_q: string): Place[] | null => null, samples: SAMPLES, tracks: null as TracksPanel | null, overlays: null as OverlayMap | null, trackCard: null as TrackCard | null, trip: null as TripRecorder | null, lastIntent: null as string | null, routePlanner: null as RoutePlanner | null, saved: null as SavedPanel | null, photos: null as Photos | null, sync: null as SyncLoader | null, navigator: null as Navigator | null, screenAwake: awake };
+  const app = { map, perf, ready: false, placesReady: false, search: (_q: string): Promise<Place[]> | null => null, samples: SAMPLES, tracks: null as TracksPanel | null, overlays: null as OverlayMap | null, trackCard: null as TrackCard | null, trip: null as TripRecorder | null, lastIntent: null as string | null, routePlanner: null as RoutePlanner | null, saved: null as SavedPanel | null, photos: null as Photos | null, sync: null as SyncLoader | null, navigator: null as Navigator | null, screenAwake: awake };
   window.__app = app;
   // F-road/track classes from the place-index pass, keyed by tile id and NET offset. Resolved
-  // once `loadPlaces` finishes; a route requested before then awaits this instead. Rejected if
-  // `loadPlaces` fails, so a route requested with no road index shows a message instead of
+  // once the places are loaded; a route requested before then awaits this instead. Rejected if
+  // they fail to load, so a route requested with no road index shows a message instead of
   // "Preparing roads…" forever. A new one for each map shown.
   let roadsReady: Promise<RoadClasses> = new Promise(() => {});
-  /** The map's named places, by name and kind (search) once loaded. */
-  let index: PlaceIndex | null = null;
+  /** The map's places (search, in their own worker) once loaded, with its towns. */
+  let index: PlaceSearch | null = null;
   let searchWired = false;
-  /** Names of the nearest place to a spot (photos), for the map shown. */
-  const nearCache = new Map<string, string | null>();
+  /** The places worker of the map shown (loading or loaded), and which map it is for. */
+  let placesWorker: { client: PlacesClient; map: string } | null = null;
   /** Settles the roads promise of the map shown before (a no-op once it has settled). */
   let settleRoads: ((roads: Promise<RoadClasses>) => void) | null = null;
+  /** Closes the places worker (another map, or memory for adding one); search waits for the next. */
+  const dropPlaces = () => {
+    placesWorker?.client.dispose();
+    placesWorker = null;
+    if (!index) return;
+    index = null;
+    near = null;
+    app.placesReady = false;
+    app.search = () => null;
+    $<HTMLInputElement>('search').disabled = !searchWired;
+  };
+  /** Loads the places of `s`'s map, unless they are loaded or loading already. */
   const startPlaces = (s: MapSource) => {
+    if (placesWorker?.map === s.stored.id) return;
     let resolveRoads!: (roads: RoadClasses | Promise<RoadClasses>) => void;
     let rejectRoads!: (err: Error) => void;
     const before = settleRoads;
@@ -474,24 +491,19 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     settleRoads = resolveRoads;
     // A route still waiting for the last map's roads is planned on this map's.
     before?.(roadsReady);
+    dropPlaces();
+    const client = new PlacesClient();
+    placesWorker = { client, map: s.stored.id };
     const input = $<HTMLInputElement>('search');
-    if (index) {
-      // Another map: its places, once read (the search stays usable meanwhile with none).
-      index = null;
-      places = [];
-      nearCache.clear();
-      app.placesReady = false;
-      app.search = () => null;
-      input.placeholder = 'Loading places…';
-      input.disabled = !searchWired;
-    }
-    void loadPlaces(s.stored, s.pool)
+    input.placeholder = 'Loading places…';
+    void client.load(s.stored.id, cacheKey(s.stored.meta), s.stored.img)
       .then((loaded) => {
-        if (closed || src !== s) return;
+        if (closed || placesWorker?.client !== client) return;
+        console.info(`places: ${loaded.count} (${loaded.source}) in ${Math.round(loaded.ms)} ms`);
         resolveRoads(loaded.roads);
-        index = loaded.index;
-        places = loaded.index.places;
-        app.search = (q) => loaded.index.search(q);
+        index = { towns: loaded.towns, search: (q, limit, from) => client.search(q, limit, from) };
+        near = loaded.near;
+        app.search = (q) => client.search(q, 20);
         app.placesReady = true;
         if (!searchWired) wireSearch(map, () => index, searchFrom, (d) => app.routePlanner?.pick(d), () => app.routePlanner?.clearPlace(), dialogs);
         searchWired = true;
@@ -499,8 +511,9 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
         input.disabled = false;
       })
       .catch((err) => {
-        if (closed || src !== s || s.pool.isDisposed) return; // the map was put away (another shown, or adding one) mid-build
+        if (closed || placesWorker?.client !== client) return; // put away (another map shown, or one being added) mid-build
         console.error('search index', err);
+        dropPlaces(); // tried again when the map is shown again
         input.placeholder = 'Search unavailable';
         rejectRoads(new Error("Routing is unavailable: the map index couldn't be built."));
       });
@@ -635,13 +648,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     // Photos (⋯ → Photos): thumbnails where they were taken; synced with the rest when that's on.
     const photos = new Photos({
       map,
-      near: (lon, lat) => {
-        // A scan of every named place: once per spot.
-        if (!places.length) return null;
-        const k = `${lon},${lat}`;
-        if (!nearCache.has(k)) nearCache.set(k, nearName(places, [lon, lat]) ?? null);
-        return nearCache.get(k)!;
-      },
+      near: (lon, lat) => near?.nearName([lon, lat]) ?? null,
       routeTo: (p) => routePlanner.pick({ name: `Photo, ${takenText(p.taken, true)}`, lon: p.lon, lat: p.lat }),
       here: () => {
         if (!locating) return null;
@@ -674,7 +681,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
         const p = map.project(at);
         const { clientWidth: w, clientHeight: h } = map.getCanvas();
         const onMap = p.x >= 0 && p.y >= 0 && p.x <= w && p.y <= h ? featureNameAt(map, p) : undefined;
-        return onMap ?? nearName(places, at);
+        return onMap ?? near?.nearName(at);
       },
       save: (pin) => saved.add(pin),
       remove: (id) => saved.delete(id),
@@ -742,33 +749,26 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
   void maps.reload().catch((err) => console.warn('maps', err));
 }
 
-async function loadPlaces(stored: Stored, pool: TilePool): Promise<{ index: PlaceIndex; roads: RoadClasses }> {
-  const key = cacheKey(stored.meta);
-  const cached = await readText(stored.id, 'places.json').catch(() => null);
-  if (cached) {
-    const decoded = decodePlacesCache(cached, key);
-    if (decoded) return { index: new PlaceIndex(decoded.places), roads: decoded.roads };
-  }
-  const { places, roads } = await pool.places();
-  // A failed cache write only costs a rebuild next launch; search still works now.
-  await writeText(stored.id, 'places.json', encodePlacesCache(key, places, roads)).catch((err) => console.warn('places cache', err));
-  return { index: new PlaceIndex(places), roads };
+/** The map's places, searched in their worker, and its towns (for "near X" in the results). */
+interface PlaceSearch {
+  towns: Town[];
+  search(q: string, limit: number, near: [number, number]): Promise<Place[]>;
 }
 
 function wireSearch(
   map: maplibregl.Map,
   /** The map shown's places (none while another map's are read). */
-  indexNow: () => PlaceIndex | null,
+  indexNow: () => PlaceSearch | null,
   searchFrom: () => { at: [number, number]; gps: boolean },
   onPick: (dest: { name: string | null; lon: number; lat: number }) => void,
   onClear: () => void,
   dialogs: Dialogs,
 ): void {
-  let townsFor: PlaceIndex | null = null;
-  let towns: ReturnType<typeof townsOf> = [];
   const input = $<HTMLInputElement>('search');
   const list = $<HTMLUListElement>('results');
   let timer = 0;
+  /** Counts searches asked of the worker: only the last one's answer is shown. */
+  let asked = 0;
   // A search box with a list of suggestions: Arrow keys move through the results, Enter picks one
   // (the first when none is chosen), Escape clears.
   let active = -1;
@@ -803,17 +803,19 @@ function wireSearch(
       clear.click();
     }
   });
-  const render = () => {
+  const render = async () => {
     const index = indexNow();
     if (!index) return;
-    if (townsFor !== index) {
-      towns = townsOf(index.places);
-      townsFor = index;
-    }
+    const n = ++asked;
+    const from = searchFrom();
+    const hits = await index.search(input.value, 100, from.at).catch((err) => {
+      if (indexNow() === index) console.warn('search', err); // not when its map was put away
+      return null;
+    });
+    if (n !== asked || !hits || indexNow() !== index) return;
     list.replaceChildren(
-      ...collapseNearby(index.search(input.value, 100, searchFrom().at)).slice(0, 20).map((p, i) => {
-        const from = searchFrom();
-        const d = describePlace(p, towns, from.at);
+      ...collapseNearby(hits).slice(0, 20).map((p, i) => {
+        const d = describePlace(p, index.towns, from.at);
         const li = document.createElement('li');
         const name = document.createElement('div');
         name.className = 'name';
@@ -853,11 +855,13 @@ function wireSearch(
     syncHint();
     clear.hidden = input.value === '';
     clearTimeout(timer);
+    asked++;
     timer = window.setTimeout(render, 120);
   });
   // Clear the query, results and result pin.
   const reset = () => {
     clearTimeout(timer);
+    asked++;
     input.value = '';
     clear.hidden = true;
     list.replaceChildren();

@@ -4,15 +4,9 @@ import type { Place } from './places';
 
 /** Compact on-disk form of a `Place`: [name, lon, lat, kindCode, type, what?]. */
 type PackedPlace = [string, number, number, number, number, string?];
-const KINDS: Kind[] = ['point', 'line', 'polygon'];
+/** Kind codes, on disk (here and in places.bin). */
+export const KINDS: Kind[] = ['point', 'line', 'polygon'];
 const PLACES_VERSION = 3;
-
-/** Encodes the on-disk `places.json` cache body: the map-file `key`, the places (packed), and the
- *  F-road/track classes keyed by tile id and NET offset. */
-export function encodePlacesCache(key: string, places: Place[], roads: RoadClasses): string {
-  const packed: PackedPlace[] = places.map((p) => (p.what ? [p.name, p.lon, p.lat, KINDS.indexOf(p.kind), p.type, p.what] : [p.name, p.lon, p.lat, KINDS.indexOf(p.kind), p.type]));
-  return JSON.stringify({ key, v: PLACES_VERSION, places: packed, roads });
-}
 
 /** Returns null (a cache miss) for another map's cache, an old/unknown format, corrupt JSON, or a
  *  `roads` field that isn't a plain object of `[NET offset, class]` pairs. */
@@ -39,7 +33,7 @@ export function decodePlacesCache(text: string, key: string): { places: Place[];
 
 /** Accepts only a plain object whose values are arrays of `[NET offset, 1|2|3]` pairs; anything
  *  else (including a missing field) is treated as invalid, so the whole places cache is rebuilt. */
-function decodeRoadClasses(value: unknown): RoadClasses | null {
+export function decodeRoadClasses(value: unknown): RoadClasses | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const out: RoadClasses = {};
   for (const [tileId, entries] of Object.entries(value as Record<string, unknown>)) {

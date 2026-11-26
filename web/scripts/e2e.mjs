@@ -112,7 +112,7 @@ try {
 
   // 3. search
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
-  const hit = await page.evaluate(() => window.__app.search('landmannalaugar')[0]);
+  const hit = await page.evaluate(async () => (await window.__app.search('landmannalaugar'))[0]);
   if (!hit || Math.abs(hit.lon + 19.06) > 0.1 || Math.abs(hit.lat - 63.99) > 0.1) fail(`search landmannalaugar → ${JSON.stringify(hit)}`);
   console.log('search ok:', hit.name, hit.lon.toFixed(3), hit.lat.toFixed(3));
   // The search bar: a magnifier that expands on tap and collapses when left empty.
@@ -1612,7 +1612,7 @@ try {
   console.log('OPFS with two maps:', JSON.stringify(two));
   if (mapDirs(two).length !== 2 || setDirs(two).length !== 1 || two.pointer.dir !== before.pointer.dir) fail(`expected two maps and one set, the first still current: ${JSON.stringify(two)}`);
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
-  if (!(await page.evaluate(() => window.__app.search('landmannalaugar').length > 0))) fail('search found nothing after adding a map');
+  if (!(await page.evaluate(async () => (await window.__app.search('landmannalaugar')).length > 0))) fail('search found nothing after adding a map');
   // Apply shows it in place, with the stored set (it covers the map).
   const g0 = await tileGen();
   await apply();
@@ -1647,7 +1647,7 @@ try {
   if ((await opfs()).pointer.dir !== before.pointer.dir) fail('switching did not make the map current');
   await page.screenshot({ path: `${OUT}maps-switched.png` });
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
-  if (!(await page.evaluate(() => window.__app.search('landmannalaugar').length > 0))) fail('search found nothing after switching');
+  if (!(await page.evaluate(async () => (await window.__app.search('landmannalaugar')).length > 0))) fail('search found nothing after switching');
   // And back; ✕ throws away a tick.
   await page.click('#maps-button');
   await page.waitForSelector('#maps-panel:not([hidden]) .map-row', { timeout: 10_000 });
@@ -1705,7 +1705,7 @@ try {
 
   // 8. An older version's layout: one map in `garmin/` (no pointer) with its elevation inside
   //    (dem/, dem-overview.bin, the names in meta.json). It opens with its hillshading, which
-  //    becomes a set where it is. Let the viewer finish its place index first (it writes places.json).
+  //    becomes a set where it is. Let the viewer finish its place index first (it writes places.bin).
   await page.waitForFunction(() => window.__app?.placesReady === true, { timeout: 600_000 });
   await page.evaluate(async (dir, set) => {
     const root = await navigator.storage.getDirectory();

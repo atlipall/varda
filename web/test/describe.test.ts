@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { collapseNearby, compass, describePlace, nearName, placeCategory, titleCase, townsOf } from '../src/search/describe';
+import { collapseNearby, compass, describePlace, placeCategory, titleCase } from '../src/search/describe';
+import { nearName, townsOf } from './helpers/placeIndex';
+import { NearIndex } from '../src/search/nearIndex';
+import { columnsFromPlaces, PlaceStore } from '../src/search/placeStore';
 import type { Place } from '../src/search/places';
 
 const place = (name: string, kind: Place['kind'], type: number, lon = -20, lat = 64): Place => ({ name, kind, type, lon, lat });
@@ -86,5 +89,22 @@ describe('nearName', () => {
     expect(nearName(places, [-19.86, 64.034])).toBe('Near Rjúpnavellir');
     expect(nearName(places, [-19.67, 63.995])).toBe('Near Hekla');
     expect(nearName(places, [-21, 64.5])).toBeUndefined();
+  });
+
+  test('a NearIndex (the grid the app asks) gives the same answers', () => {
+    const places = [
+      place('RJÚPNAVELLIR', 'point', 0x2b02, -19.88, 64.03),
+      place('HEKLA 1491m', 'point', 0x6616, -19.67, 63.99),
+      place('Þjórsá', 'line', 0x1f00, -19.86, 64.035),
+      place('420', 'point', 0x6616, -19.86, 64.035),
+      place('Hut', 'point', 0x2b02, -19.7, 64.05),
+      place('Other hut', 'point', 0x2b02, -19.7, 64.05), // the same spot: the later one, as before
+    ];
+    const near = new NearIndex(new PlaceStore(columnsFromPlaces(places, {})).namedPoints());
+    for (const at of [[-19.86, 64.034], [-19.67, 63.995], [-21, 64.5], [-19.7, 64.05], [-19.75, 64.04]] as Array<[number, number]>) {
+      expect(near.nearName(at)).toBe(nearName(places, at));
+      expect(near.nearName(at, 10)).toBe(nearName(places, at, 10));
+    }
+    expect(near.nearName([-19.7, 64.05])).toBe('Near Other hut');
   });
 });
