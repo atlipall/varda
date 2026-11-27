@@ -83,8 +83,7 @@ npm run icons                           # redraw the app's and Android app's ico
   point, so ends join the nearest line within 15 m and trails get nodes where they cross lines.
   Owner's choice: "Also walking routes" (not only the last stretch). Open: navigation guides
   only the driven part (the walk at the end isn't guided); walking times ignore hills (the .hgt
-  could give Tobler times); gaps between trails stop a walk ("No way on foot…"); guide
-  screenshots not retaken.
+  could give Tobler times); gaps between trails stop a walk ("No way on foot…").
 
 - **`big-map-routing` branch (2026-11-26), on the development site:** big maps (Freizeitkarte
   Denmark: 609 MB, 3.67 million routing nodes, 617,000 places; a copy in
