@@ -917,13 +917,13 @@ try {
   if (cs.confirm || cs.menu.length || cs.drawn !== 0 || !/^Dropped pin/.test(cs.title) || await page.$eval('#route-go', (e) => e.hidden)) fail(`New route: ${JSON.stringify(cs)}`);
   console.log('pin-over-route confirm ok');
   // A destination 1.5 km from the nearest road (a highland spot from a user report): a dashed
-  // off-road leg and a "+ … off-road at the end" line.
+  // off-road leg and a "+ … on foot at the end" line.
   await page.evaluate(() => window.__app.routePlanner.pick({ name: 'Off the road', lon: -19.31, lat: 64.18 }));
   await page.click('#route-go');
   await page.waitForFunction(() => /km · /.test(document.querySelector('#route-info')?.textContent ?? ''), { timeout: 60_000 }).catch(async () => fail(`off-road destination: ${await page.$eval('#route-msg', (e) => e.textContent)}`));
   const off = await page.evaluate(() => ({ text: document.querySelector('#route-off').textContent, legs: window.__app.map.getStyle().sources.route.data.features.filter((f) => f.properties.kind === 'offroad').length, dashed: !!window.__app.map.getPaintProperty('route-offroad', 'line-dasharray') }));
-  // (The emulated Selfoss position is ~40 m off its road too: "+ 40 m and 1.6 km … at the start and end".)
-  if (!/^\+ (\d+ m and )?1\.\d km off-road at the (start and )?end$/.test(off.text) || off.legs < 1 || !off.dashed) fail(`off-road leg: ${JSON.stringify(off)}`);
+  // (The emulated Selfoss position is ~40 m off its road too: "+ 40 m on foot at the start and 1.6 km at the end".)
+  if (!/^\+ (\d+ m on foot at the start and 1\.\d km|1\.\d km on foot) at the end$/.test(off.text) || off.legs < 1 || !off.dashed) fail(`off-road leg: ${JSON.stringify(off)}`);
   await new Promise((r) => setTimeout(r, 1000)); // fitBounds
   await page.screenshot({ path: `${OUT}route-offroad.png` });
   console.log('off-road ok:', off.text);

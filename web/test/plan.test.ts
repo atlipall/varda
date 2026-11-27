@@ -225,10 +225,10 @@ describe('routeMessage', () => {
 describe('offRoadText', () => {
   test('none, start, end or both; metres below 1 km, one decimal below 10 km', () => {
     expect(offRoadText(0, 0)).toBe('');
-    expect(offRoadText(1320, 0)).toBe('+ 1.3 km off-road at the start');
-    expect(offRoadText(0, 347)).toBe('+ 350 m off-road at the end');
-    expect(offRoadText(412, 1300)).toBe('+ 410 m and 1.3 km off-road at the start and end');
-    expect(offRoadText(12_400, 0)).toBe('+ 12 km off-road at the start');
-    expect(offRoadText(998, 0)).toBe('+ 1.0 km off-road at the start');
+    expect(offRoadText(1320, 0)).toBe('+ 1.3 km on foot at the start');
+    expect(offRoadText(0, 347)).toBe('+ 350 m on foot at the end');
+    expect(offRoadText(412, 1300)).toBe('+ 410 m on foot at the start and 1.3 km at the end');
+    expect(offRoadText(12_400, 0)).toBe('+ 12 km on foot at the start');
+    expect(offRoadText(998, 0)).toBe('+ 1.0 km on foot at the start');
   });
 });

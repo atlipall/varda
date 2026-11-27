@@ -31,10 +31,11 @@ function fmtOffRoad(m: number): string {
   return m < 9950 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 1000)} km`;
 }
 
-/** The panel's off-road line, e.g. "+ 1.3 km off-road at the start"; '' when there's none. */
+/** The panel's line for the straight legs between a point and its road, e.g. "+ 1.3 km on foot at
+ *  the start"; '' when there's none. The route keeps to the roads; the rest is walked. */
 export function offRoadText(startM: number, endM: number): string {
-  if (startM && endM) return `+ ${fmtOffRoad(startM)} and ${fmtOffRoad(endM)} off-road at the start and end`;
-  if (startM) return `+ ${fmtOffRoad(startM)} off-road at the start`;
-  if (endM) return `+ ${fmtOffRoad(endM)} off-road at the end`;
+  if (startM && endM) return `+ ${fmtOffRoad(startM)} on foot at the start and ${fmtOffRoad(endM)} at the end`;
+  if (startM) return `+ ${fmtOffRoad(startM)} on foot at the start`;
+  if (endM) return `+ ${fmtOffRoad(endM)} on foot at the end`;
   return '';
 }
