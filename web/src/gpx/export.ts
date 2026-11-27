@@ -18,15 +18,15 @@ const pt = ([lon, lat]: LonLat) => `lat="${lat.toFixed(6)}" lon="${lon.toFixed(6
 
 /**
  * The route as a GPX 1.1 file: a track along the drawn line (from the chosen start, including the
- * off-road legs at the ends, to the destination) and waypoints for the start, each waypoint and the
+ * ways on foot at the ends, to the destination) and waypoints for the start, each waypoint and the
  * destination. A track rather than a GPX route, so a device shows this exact line instead of
  * working out its own.
  */
 export function routeGpx(r: RouteExport, now = new Date()): string {
   const line: LonLat[] = [
-    ...(r.route.offRoadStart ? [r.route.offRoadStart[0]] : []),
+    ...(r.route.offRoadStart?.slice(0, -1) ?? []),
     ...r.route.coords,
-    ...(r.route.offRoadEnd ? [r.route.offRoadEnd[1]] : []),
+    ...(r.route.offRoadEnd?.slice(1) ?? []),
   ];
   const wpt = (at: LonLat, name: string) => `  <wpt ${pt(at)}><name>${esc(name)}</name></wpt>`;
   const label = (p: { name: string | null; near?: string }, fallback: string) => p.name ?? p.near ?? fallback;

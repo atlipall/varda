@@ -9,13 +9,21 @@ export interface MapConventions {
   pointLabel(label: string): { name: string | null; what?: string };
   /** The credit the map's licence asks for (HTML), or null. */
   credit: string | null;
+  /** Line types of paths people walk that aren't in the routing network (walking routes use them
+   *  as well as the roads). Garmin's trail type is 0x16; maps whose trails are roads of the
+   *  routing network (Freizeitkarte's footpaths) need none. */
+  trailLines: readonly number[];
 }
 
-const PLAIN: MapConventions = { pointLabel: (label) => ({ name: label }), credit: null };
+const PLAIN: MapConventions = { pointLabel: (label) => ({ name: label }), credit: null, trailLines: [0x16] };
 
 /** Freizeitkarte (free, OpenStreetMap-based): "Dettifoss (Waterfall)" labels, and a credit. */
-const FREIZEITKARTE: MapConventions = { pointLabel: splitTypeSuffix, credit: FREIZEITKARTE_CREDIT };
+const FREIZEITKARTE: MapConventions = { pointLabel: splitTypeSuffix, credit: FREIZEITKARTE_CREDIT, trailLines: [] };
+
+/** GPSmap.is draws its hiking trails as 0x14 (Garmin's railway type; Iceland has none). */
+const GPSMAP_IS: MapConventions = { ...PLAIN, trailLines: [0x14, 0x16] };
 
 export function conventionsFor(description: string): MapConventions {
-  return /^Freizeitkarte/i.test(description) ? FREIZEITKARTE : PLAIN;
+  if (/^Freizeitkarte/i.test(description)) return FREIZEITKARTE;
+  return /GPSmap\.is/i.test(description) ? GPSMAP_IS : PLAIN;
 }

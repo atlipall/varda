@@ -245,7 +245,7 @@ export interface Route {
 }
 
 /** Binary min-heap of (key, value) pairs, in typed arrays that grow and are kept between searches. */
-class Heap {
+export class Heap {
   private keys = new Float64Array(1024);
   private vals = new Int32Array(1024);
   size = 0;

@@ -566,7 +566,7 @@ function mountViewer(lib: Library, first: MapSource, opts: ViewerOptions): void 
     maps.attachOverlays(overlays);
     const routePlanner = new RoutePlanner(
       map,
-      (from, to, allow, prefer) => roadsReady.then((roads) => pool.route(from, to, allow, prefer, roads)),
+      (from, to, allow, prefer, walk) => roadsReady.then((roads) => pool.route(from, to, allow, prefer, roads, walk)),
       searchFrom,
       () => locate.activate(),
     );

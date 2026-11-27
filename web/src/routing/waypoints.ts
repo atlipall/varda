@@ -3,7 +3,7 @@ import type { LonLat, RoadSeg, RouteReply } from './plan';
 type RouteOk = Extract<RouteReply, { status: 'ok' }>;
 
 /** A route through waypoints: the legs joined, with the off-road legs at the waypoints as well. */
-export type JoinedRoute = RouteOk & { offRoadVia?: Array<[LonLat, LonLat]> };
+export type JoinedRoute = RouteOk & { offRoadVia?: LonLat[][] };
 
 /** Straight-line metres between two [lon, lat] points (an equirectangular approximation; fine for
  *  comparing detours). */
@@ -31,7 +31,7 @@ export function joinLegs(legs: RouteOk[]): JoinedRoute {
   const first = legs[0];
   const last = legs[legs.length - 1];
   const coords: LonLat[] = [];
-  const via: Array<[LonLat, LonLat]> = [];
+  const via: LonLat[][] = [];
   // The road stretches, each leg's moved to where its line starts in the joined one, the first after
   // each waypoint marked with the waypoint's number. None when a leg has none.
   const segs: RoadSeg[] | undefined = legs.every((l) => l.segs?.length) ? [] : undefined;

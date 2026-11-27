@@ -202,13 +202,14 @@ export class TilePool {
     return this.call(live[live.length - 1], { type: 'elevations', coords }).then((msg) => msg.metres as Array<number | null>);
   }
 
-  /** Plans a route on the last worker (which keeps the road network after the first request). */
-  route(from: [number, number], to: [number, number], allowFRoads: boolean, preferFRoads: boolean, roads: RoadClasses): Promise<RouteReply> {
+  /** Plans a route on the last worker (which keeps the road network after the first request);
+   *  `walk`: on foot, along paths and roads. */
+  route(from: [number, number], to: [number, number], allowFRoads: boolean, preferFRoads: boolean, roads: RoadClasses, walk = false): Promise<RouteReply> {
     if (this.disposed) return Promise.reject(new Error('pool disposed'));
     const live = this.live();
     if (!live.length) return Promise.reject(new Error('no workers available'));
     const w = live[live.length - 1];
-    return this.call(w, { type: 'route', from, to, allowFRoads, preferFRoads, ...this.roadsFor(w, roads) }).then((msg) => msg.result as RouteReply);
+    return this.call(w, { type: 'route', from, to, allowFRoads, preferFRoads, walk, ...this.roadsFor(w, roads) }).then((msg) => msg.result as RouteReply);
   }
 
   /** Road stretches along a track, matched to the map's roads (for its turn instructions). */

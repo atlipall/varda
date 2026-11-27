@@ -71,6 +71,21 @@ npm run icons                           # redraw the app's and Android app's ico
 
 ## Open work (update this when it changes)
 
+- **`walking-routes` branch (2026-11-27), on the development site:** walking. Drive | Walk in
+  the route card (setting `walkRoutes`). Walk plans along the drawn roads and trails
+  (`web/src/routing/walk.ts`, `planWalk.ts`; up to 100 km apart, 4 km/h, the paths read in a box
+  round the two places). Drive to a pin off the roads now goes on foot along the trails to the
+  nearest road a car can use when that beats walking straight (straight counts double; a trail
+  that stops ≤300 m short of the road hops the rest), drawn dashed ("+ 2.7 km on foot at the
+  end"); the legs on foot are lines now, not two points. GPSmap.is has no routing data for its
+  trails (all its 2026 editions have the same NOD; "Hiking" only shows the trails from further
+  out): they are type 0x14 (`trailLines` in `conventions.ts`), and meet roads without a shared
+  point, so ends join the nearest line within 15 m and trails get nodes where they cross lines.
+  Owner's choice: "Also walking routes" (not only the last stretch). Open: navigation guides
+  only the driven part (the walk at the end isn't guided); walking times ignore hills (the .hgt
+  could give Tobler times); gaps between trails stop a walk ("No way on foot…"); guide
+  screenshots not retaken.
+
 - **`big-map-routing` branch (2026-11-26), on the development site:** big maps (Freizeitkarte
   Denmark: 609 MB, 3.67 million routing nodes, 617,000 places; a copy in
   `map-files/Freizeitkarte DNK/` for `test/bigMap.test.ts`). Routing's graph in typed arrays

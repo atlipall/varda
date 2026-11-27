@@ -1,4 +1,4 @@
-import { WALK_MPS } from '../gpx/fromRoute';
+import { WALK_MPS, walkSeg } from '../gpx/fromRoute';
 import type { StoredTrack } from '../gpx/store';
 import { cumulative, metres } from '../routing/maneuvers';
 import type { LonLat, RoadSeg, RouteReply } from '../routing/plan';
@@ -76,26 +76,30 @@ export function routeAlongTrack(name: string, line: TrackLine, segs: RoadSeg[], 
   const coords: LonLat[] = [];
   const out: RoadSeg[] = [];
   let seconds = 0;
-  const walk = (a: LonLat, b: LonLat) => {
-    const s = metres(a, b) / WALK_MPS;
-    out.push({ start: Math.max(0, coords.length - 1), name: null, type: 0, junction: coords.length > 0, seconds: s, trail: true, offRoad: true });
+  /** A way on foot from the last point of `coords` along `leg` (its first point that one): a
+   *  stretch for it, and its points but the last (the next part starts there). */
+  const walk = (leg: LonLat[]) => {
+    const s = cumulative(leg).pop()! / WALK_MPS;
+    out.push(walkSeg(Math.max(0, coords.length - 1), leg, coords.length > 0, s));
+    coords.push(...leg.slice(1, -1));
     seconds += s;
   };
   if (approach) {
     if (approach.offRoadStart) {
       coords.push(approach.offRoadStart[0]);
-      walk(approach.offRoadStart[0], approach.offRoadStart[1]);
+      walk(approach.offRoadStart);
     }
     const base = coords.length;
     const roadSegs = approach.segs?.length ? approach.segs : [{ start: 0, name: null, type: 0, junction: false, seconds: approach.seconds }];
     out.push(...roadSegs.map((s, k) => ({ ...s, start: s.start + base, junction: s.junction || (k === 0 && base > 0) })));
     coords.push(...approach.coords);
     seconds += approach.seconds;
-    if (approach.offRoadEnd) walk(approach.offRoadEnd[0], join.point);
+    // The way on foot from the road ends at the track (the route was planned to its join point).
+    if (approach.offRoadEnd) walk([...approach.offRoadEnd.slice(0, -1), join.point]);
   } else if (from && metres(from, join.point) > 1) {
     // No road leads there: straight to the track.
     coords.push(from);
-    walk(from, join.point);
+    walk([from, join.point]);
   }
   const approachM = coords.length ? cumulative([...coords, join.point]).pop()! : 0;
   // The track from the join point: its stretches moved to their place on the joined line.

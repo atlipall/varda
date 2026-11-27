@@ -6,6 +6,7 @@ import { EDGE_FROAD, edgeSource, metresBetween, UNITS_PER_DEG, type NodeIndex, t
 import type { RoadSeg, Shaped } from './plan';
 import type { RoadClass, RoadClasses } from './roadClass';
 import { followRoad, incoming, linesThrough, type RoadLine, type RoadLines } from './snap';
+import type { WalkLine, WalkLines } from './walk';
 
 /**
  * The route drawn along its roads: each edge follows its road (the lines with the edge's tile and
@@ -255,4 +256,36 @@ export function roadLineSource(map: GarminMap, decode: (tile: MapTile, sd: Subdi
     return out;
   };
   return lines;
+}
+
+/** Ferries are routable lines nobody walks (Garmin types 0x1a, 0x1b). */
+const FERRY = new Set([0x1a, 0x1b]);
+
+/**
+ * Lines to walk along (see ./walk.ts): in the finest-level subdivisions that reach the box (map
+ * units), the routable lines but ferries, and the lines of the map's trail types
+ * (`conventions.trailLines`) that aren't routable, each with its road class from `classes`.
+ */
+export function walkLineSource(map: GarminMap, decode: (tile: MapTile, sd: Subdivision) => Promise<RawObject[]>, classes: RoadClasses): WalkLines {
+  const grid = gridOf(map);
+  const classOf = classesByTile(map, classes);
+  return async ([w, s, e, n]) => {
+    const rx = (e - w) / 2;
+    const ry = (n - s) / 2;
+    const out: WalkLine[] = [];
+    const near = subdivisionsNear(grid, w + rx, s + ry, rx, ry);
+    const decoded = await Promise.all(near.map((k) => decode(map.tiles[grid.tileOf[k]], grid.sds[k])));
+    near.forEach((k, n) => {
+      const i = grid.tileOf[k];
+      const trails = map.tiles[i].conventions.trailLines;
+      for (const o of decoded[n]) {
+        if (o.kind !== 'line' || o.xy.length < 4) continue;
+        const routable = o.labelSrc === 'net';
+        if (routable ? FERRY.has(o.type) : !trails.includes(o.type)) continue;
+        // A copy: a view would keep the whole subdivision's points after the cache lets it go.
+        out.push({ xy: o.xy.slice(), tile: i, net: routable ? o.label : -1, cls: routable ? (classOf[i].get(o.label) ?? 0) : 0 });
+      }
+    });
+    return out;
+  };
 }

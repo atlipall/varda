@@ -7,8 +7,9 @@ import { GarminMap, type MapTile } from '../map/garminMap';
 import { NodeIndex, type RoadGraph, type Route } from '../routing/graph';
 import { buildNetwork } from '../routing/network';
 import { planRoute } from '../routing/plan';
+import { planWalk } from '../routing/planWalk';
 import type { RoadClasses } from '../routing/roadClass';
-import { roadLineSource, routeShape } from '../routing/shape';
+import { roadLineSource, routeShape, walkLineSource } from '../routing/shape';
 import { matchTrack } from '../tracks/match';
 import { buildTile, SubdivisionCache } from '../tiles/buildTile';
 
@@ -147,6 +148,15 @@ self.onmessage = async (e: MessageEvent) => {
     } else if (msg.type === 'route') {
       if (!opened) throw new Error('map not opened');
       const m = await opened;
+      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd, { labels: false }));
+      if (msg.walk) {
+        // On foot: the drawn paths and roads near the two places; the routing network isn't needed.
+        const roads = roadsFor(msg);
+        const lines = roadLineSource(m, decode, roads);
+        const result = await planWalk(walkLineSource(m, decode, roads), msg.from as [number, number], msg.to as [number, number], (coords) => matchTrack(coords, lines));
+        self.postMessage({ type: 'route', id: msg.id, result });
+        return;
+      }
       if (!network) {
         // A rejected build (I/O error, malformed NOD) must not stick around forever: clear
         // `network` — but only if nothing else already replaced it (a later 'open') — so the
@@ -163,10 +173,10 @@ self.onmessage = async (e: MessageEvent) => {
         network = building;
       }
       const { graph, index, roads } = await network;
-      const decode = (tile: MapTile, sd: Subdivision) => cache.get(`${tile.id}:${sd.index}`, () => m.decode(tile, sd, { labels: false }));
       const lines = roadLineSource(m, decode, roads);
       const shape = (route: Route) => routeShape(graph, index, route, lines);
-      const result = await planRoute(graph, index, lines, msg.from as [number, number], msg.to as [number, number], msg.allowFRoads as boolean, shape, msg.preferFRoads === true);
+      // A place away from the roads: on foot along the paths to a road where they lead to one.
+      const result = await planRoute(graph, index, lines, msg.from as [number, number], msg.to as [number, number], msg.allowFRoads as boolean, shape, msg.preferFRoads === true, walkLineSource(m, decode, roads));
       self.postMessage({ type: 'route', id: msg.id, result });
     } else if (msg.type === 'match') {
       // A track matched to the map's roads (for its turn instructions): only the road lines needed.

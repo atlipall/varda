@@ -39,7 +39,7 @@ export type Saved = SavedPin | SavedRoute;
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isLonLat = (v: unknown): v is LonLat => Array.isArray(v) && v.length === 2 && isNum(v[0]) && isNum(v[1]);
 const isLine = (v: unknown): boolean => Array.isArray(v) && v.length >= 2 && v.every(isLonLat);
-const isLeg = (v: unknown) => v === null || v === undefined || (Array.isArray(v) && v.length === 2 && v.every(isLonLat));
+const isLeg = (v: unknown) => v === null || v === undefined || isLine(v);
 const isPlace = (v: unknown) => {
   const p = v as { name: unknown; near?: unknown; lon: unknown; lat: unknown };
   return !!p && (p.name === null || typeof p.name === 'string') && (p.near === undefined || typeof p.near === 'string') && isNum(p.lon) && isNum(p.lat);

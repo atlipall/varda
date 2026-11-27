@@ -62,6 +62,8 @@ export class RoutePlanner {
   private choosing = false;
   private allow = readSetting('allowFRoads', true);
   private prefer = readSetting('preferFRoads', false);
+  /** On foot along paths and roads (Walk), not by car. */
+  private walk = readSetting('walkRoutes', false);
   private started = false;
   /** A route line is on the map. */
   private shown = false;
@@ -102,7 +104,7 @@ export class RoutePlanner {
   /** `searchFrom`: your recent GPS position, else the map centre. `useLocation` turns location on. */
   constructor(
     private readonly map: maplibregl.Map,
-    private readonly plan: (from: [number, number], to: [number, number], allow: boolean, prefer: boolean) => Promise<RouteReply>,
+    private readonly plan: (from: [number, number], to: [number, number], allow: boolean, prefer: boolean, walk: boolean) => Promise<RouteReply>,
     private readonly searchFrom: () => { at: [number, number]; gps: boolean },
     private readonly useLocation: () => void,
   ) {
@@ -161,6 +163,19 @@ export class RoutePlanner {
         void this.route();
       }
     };
+    // Drive or Walk: kept for the next route too; a route shown is planned again the new way.
+    for (const [id, walk] of [['route-drive', false], ['route-walk', true]] as const) {
+      $(id).onclick = () => {
+        if (this.walk === walk) return;
+        this.walk = walk;
+        writeSetting('walkRoutes', walk);
+        this.showSwitches();
+        if (this.started && !this.waiting) {
+          this.fitRoute = false;
+          void this.route();
+        }
+      };
+    }
     $('route-change').onclick = () => this.showChoices($('route-choices').hidden === true);
     $('route-use-gps').onclick = () => void this.useMyLocation();
     $('route-choose').onclick = () => this.chooseOnMap();
@@ -578,12 +593,17 @@ export class RoutePlanner {
     if (msg && this.minimized) this.setMinimized(false);
   }
 
-  /** The F-road switches, on the route panel only; "Prefer" only while F-roads are allowed. */
+  /** Drive | Walk and the F-road switches, on the route panel only; the switches only for driving,
+   *  "Prefer" only while F-roads are allowed. */
   private showSwitches(): void {
-    $('route-switch').hidden = !this.started;
-    $('route-prefer-switch').hidden = !this.started || !this.allow;
-    $('route-options-toggle').hidden = !this.started;
-    if (!this.started) this.showOptions(false);
+    $('route-mode').hidden = !this.started;
+    $('route-drive').setAttribute('aria-checked', String(!this.walk));
+    $('route-walk').setAttribute('aria-checked', String(this.walk));
+    const options = this.started && !this.walk;
+    $('route-switch').hidden = !options;
+    $('route-prefer-switch').hidden = !options || !this.allow;
+    $('route-options-toggle').hidden = !options;
+    if (!options) this.showOptions(false);
     $('route-options-sum').textContent = !this.allow ? 'No F-roads' : this.prefer ? 'F-roads preferred' : 'F-roads allowed';
     $('route-stop-to').hidden = !this.started;
     if (this.dest) $('route-to-text').textContent = this.dest.name ?? this.dest.near ?? coordsText(this.dest);
@@ -675,7 +695,7 @@ export class RoutePlanner {
     const stops: LonLat[] = [from, ...this.vias.map((v): LonLat => [v.lon, v.lat]), [this.dest.lon, this.dest.lat]];
     const legs: RouteOk[] = [];
     for (let i = 0; i + 1 < stops.length; i++) {
-      const reply = await this.plan(stops[i], stops[i + 1], this.allow, this.prefer).catch((err) => ({ status: 'error' as const, err }));
+      const reply = await this.plan(stops[i], stops[i + 1], this.allow, this.prefer, this.walk).catch((err) => ({ status: 'error' as const, err }));
       if (seq !== this.seq) return; // superseded
       if (reply.status === 'ok') {
         legs.push(reply);
@@ -710,7 +730,7 @@ export class RoutePlanner {
   private showRoute(reply: JoinedRoute, from: [number, number], kind: StartKind, fit: boolean): void {
     const feature = (k: string, geometry: GeoJSON.Geometry): GeoJSON.Feature => ({ type: 'Feature', properties: { kind: k }, geometry });
     const features = [feature('route', { type: 'LineString', coordinates: reply.coords })];
-    // Waypoints sit on the road (see route()), so only the start and end have off-road legs.
+    // Waypoints sit on the road (see route()), so only the start and end have ways on foot.
     for (const leg of [reply.offRoadStart, reply.offRoadEnd]) if (leg) features.push(feature('offroad', { type: 'LineString', coordinates: leg }));
     // A chosen start has its pin; otherwise a dot marks where the route starts.
     if (kind !== 'chosen') features.push(feature('start', { type: 'Point', coordinates: reply.coords[0] }));
@@ -718,7 +738,7 @@ export class RoutePlanner {
     this.last = { route: reply, from };
     this.showSave();
     const via = this.vias.length ? ` · via ${this.vias.length} waypoint${this.vias.length === 1 ? '' : 's'}` : '';
-    this.setInfo(`${fmtKm(reply.metres)} · ${fmtTime(reply.seconds)}${via}`, offRoadText(reply.offRoadStartM, reply.offRoadEndM), '');
+    this.setInfo(`${fmtKm(reply.metres)} · ${fmtTime(reply.seconds)}${via}`, offRoadText(reply.offRoadStartM, reply.offRoadEndM, this.walk), '');
     // The blue band: drive time, distance and when you'd arrive leaving now (no guidance, so it
     // doesn't count down as you drive).
     const arrive = new Date(Date.now() + reply.seconds * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });

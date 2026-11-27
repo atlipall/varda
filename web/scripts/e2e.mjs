@@ -927,6 +927,34 @@ try {
   await new Promise((r) => setTimeout(r, 1000)); // fitBounds
   await page.screenshot({ path: `${OUT}route-offroad.png` });
   console.log('off-road ok:', off.text);
+  // Walk: that place is walked too, 95 km (walking has no route options); one across Selfoss is
+  // walked along its streets. Then Drive to the first place again, for what follows.
+  await page.click('#route-walk');
+  const t0walk = Date.now();
+  await page.waitForFunction(() => /km · /.test(document.querySelector('#route-info')?.textContent ?? '') || document.querySelector('#route-msg')?.textContent, { timeout: 120_000 }).catch(() => fail('walk to the highland spot: no answer'));
+  const far = await page.evaluate(() => ({ info: document.querySelector('#route-info').textContent, msg: document.querySelector('#route-msg').textContent }));
+  if (!/^9\d km · \d+ h/.test(far.info)) fail(`walk to the highland spot: ${JSON.stringify(far)}`);
+  console.log('walk to the highland spot:', far.info, `${Date.now() - t0walk} ms`);
+  if (!(await page.$eval('#route-options-toggle', (e) => e.hidden))) fail('route options shown while walking');
+  await page.evaluate(() => window.__app.routePlanner.pick({ name: 'Across Selfoss', lon: -20.985, lat: 63.93 }));
+  await page.click('#place-menu-new');
+  await page.click('#route-go');
+  await page.waitForFunction(() => /km · /.test(document.querySelector('#route-info')?.textContent ?? ''), { timeout: 60_000 }).catch(async () => fail(`walk: ${await page.$eval('#route-msg', (e) => e.textContent)}`));
+  const walked = await page.evaluate(() => ({ info: document.querySelector('#route-info').textContent, walk: document.querySelector('#route-walk').getAttribute('aria-checked'), line: window.__app.map.getStyle().sources.route.data.features.find((f) => f.properties.kind === 'route')?.geometry.coordinates.length ?? 0 }));
+  // About 1 km at 4 km/h: a quarter of an hour or so.
+  const [, walkKm, walkMin] = walked.info.match(/^([\d.]+) km · (\d+) min/) ?? [];
+  if (walked.walk !== 'true' || !(walkKm > 0.7 && walkKm < 2.5) || !(walkMin >= 10 && walkMin <= 40) || walked.line < 5) fail(`walk: ${JSON.stringify(walked)}`);
+  await new Promise((r) => setTimeout(r, 1000)); // fitBounds
+  await page.screenshot({ path: `${OUT}route-walk.png` });
+  console.log('walk ok:', walked.info);
+  await page.click('#route-drive');
+  await page.waitForFunction(() => document.querySelector('#route-drive').getAttribute('aria-checked') === 'true' && /km · /.test(document.querySelector('#route-info')?.textContent ?? ''), { timeout: 60_000 });
+  await page.click('#route-close');
+  await page.click('#route-confirm-yes');
+  await page.evaluate(() => window.__app.routePlanner.pick({ name: 'Off the road', lon: -19.31, lat: 64.18 }));
+  await page.click('#route-go');
+  await page.waitForFunction(() => /^\+ .* on foot/.test(document.querySelector('#route-off')?.textContent ?? ''), { timeout: 60_000 });
+  await new Promise((r) => setTimeout(r, 1000)); // fitBounds
   // Change → Choose on the map → a map tap sets the start (a start pin, no start dot).
   await page.click('#route-change');
   const choices = await page.evaluate(() => [...document.querySelectorAll('#route-choices button')].map((b) => b.textContent));

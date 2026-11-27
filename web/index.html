@@ -486,6 +486,10 @@
       #route-choices[hidden], #route-confirm[hidden] { display: none; }
       #route-choices button, #route-confirm button, #route-save-form button { min-height: 44px; padding: 0 12px; border: 1.5px solid #d4d9e1; border-radius: 10px; background: #fff; color: var(--ink); font-size: calc(15 * var(--px)); font-weight: 600; cursor: pointer; }
       #route-choices button.primary, #route-confirm button.primary, #route-save-form button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+      #route-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; border-radius: 10px; background: #eef0f3; }
+      #route-mode[hidden] { display: none; }
+      #route-mode button { min-height: 40px; border: 0; border-radius: 8px; background: none; color: var(--ink); font-size: calc(15 * var(--px)); font-weight: 600; cursor: pointer; }
+      #route-mode button[aria-checked="true"] { background: #fff; box-shadow: 0 1px 3px #1e283c2e; }
       #route-options-toggle { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0; border: 0; border-top: 1px solid #eef0f3; background: none; color: var(--ink); font-size: calc(15 * var(--px)); font-weight: 500; text-align: left; cursor: pointer; }
       #route-options-toggle .grow { flex: 1; }
       #route-options-sum { font-size: calc(14 * var(--px)); color: #5b6475; }
@@ -762,6 +766,7 @@
           <div id="route-via-list"></div>
           <div class="stop" id="route-stop-to" hidden><span class="stop-mark"><svg width="16" height="20" viewBox="0 0 14 18" aria-hidden="true"><path d="M7 0C3.1 0 0 3.1 0 7c0 5 7 11 7 11s7-6 7-11c0-3.9-3.1-7-7-7z" fill="#c0392b"/><circle cx="7" cy="7" r="2.6" fill="#fff"/></svg></span><div class="stop-text"><span class="stop-label">To</span><span class="stop-name" id="route-to-text"></span></div><span></span></div>
         </div>
+        <div id="route-mode" role="radiogroup" aria-label="How you go" hidden><button id="route-drive" type="button" role="radio" aria-checked="true">Drive</button><button id="route-walk" type="button" role="radio" aria-checked="false">Walk</button></div>
         <div id="route-off"></div>
         <div id="route-msg" role="status"></div>
         <div id="route-confirm" role="alertdialog" aria-labelledby="route-confirm-text" hidden><div id="route-confirm-text"></div><button id="route-confirm-yes" type="button" class="primary">Clear route</button><button id="route-confirm-no" type="button">Keep route</button></div>
